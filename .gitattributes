@@ -1,0 +1,2 @@
+.hyphae_cache/**[[:space:]]Pfam-A.hmm*[[:space:]]megahit_output/**[[:space:]]spades_output/**[[:space:]]report_final/** filter=lfs diff=lfs merge=lfs -text
+*.fastq[[:space:]]*.fq[[:space:]].hyphae_cache/**[[:space:]]Pfam-A.hmm*[[:space:]]megahit_output/**[[:space:]]spades_output/**[[:space:]]report_final/** filter=lfs diff=lfs merge=lfs -text
