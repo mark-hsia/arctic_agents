@@ -30,8 +30,43 @@ Success criteria, baselines, and target metrics live in [`docs/validation_cladon
 - [`docs/design.md`](docs/design.md) — architecture, orchestration, state, memory, evaluation.
 - [`docs/agents.md`](docs/agents.md) — per-agent contracts, tools, failure modes, prompt skeletons.
 - [`docs/validation_cladonia.md`](docs/validation_cladonia.md) — how the Arctic project exercises every agent and what counts as success.
+- [`docs/benchmarks.md`](docs/benchmarks.md) — benchmark papers, what we measure, what "outperform" means at each stage.
 - [`docs/roadmap.md`](docs/roadmap.md) — June–September plan expressed as agent milestones.
 
 ## Status
 
-Design phase. No implementation yet — the documents above are the proposal under review.
+**June milestone scaffolded.** The foundation, agent layer, and benchmark harness are in. End-to-end runs work against three published *Cladonia* papers — the harness scores Hyphae's run state against their reported numbers stage-by-stage. Bio tool execution (metaSPAdes, antiSMASH, ...) is wired but only fires when the binaries are present; CI exercises the full graph in **replay mode** against pre-recorded artifacts.
+
+**Implemented**
+
+- Typed `RunState` + append-only patch model.
+- Content-addressed artifact store and DuckDB provenance index.
+- Budget ledger.
+- Agent base class enforcing reads/writes contracts.
+- Tool registry with hosted-vs-local routing; tool wrappers shell out when binaries present, defer cleanly otherwise.
+- Workflow runners: `LocalShellRunner`, `DryRunRunner`, `ReplayRunner` (`SnakemakeRunner` stub).
+- Coordinator (LangGraph), Ingestion, Assembly & Binning, Taxonomy & Ecology, BGC Discovery agents.
+- Eval harness wired against:
+  - **Junttila et al. 2021** — primary head-to-head, six *Cladonia* metagenomes (PRJEB34718).
+  - **Tagirdzhanova et al. 2025** — named-BGC recovery on *C. rangiformis*.
+  - **Lee et al. 2024** — per-species ceiling on six *Cladonia* genomes.
+- CLI: `hyphae init / run / bench / artifacts / tools`.
+- Pytest suite (34 checks) + GitHub Actions CI.
+
+**Deferred**
+
+- Real runs against PRJEB34718. Requires hosted antiSMASH credentials or a container with the bio toolchain. The harness flips to live execution by removing `--replay`; no code changes needed.
+- DeepBGC, GECCO, BiG-SCAPE wrappers (BGC Discovery v0 is antiSMASH-only).
+- Novelty / Structure / Docking / Literature / Critic / Reporter — those are July–September per the roadmap.
+
+## Quickstart
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest                                # 34 checks pass without any bio tools
+hyphae tools                          # show which tool wrappers are available
+hyphae init out/ examples/junttila2021_intent.yaml
+hyphae run --workdir out/ --replay <manifest.json> --deterministic
+hyphae bench --workdir out/ --out out/report.md
+```

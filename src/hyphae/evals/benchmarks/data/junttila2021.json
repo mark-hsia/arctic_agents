@@ -1,0 +1,69 @@
+{
+  "_source": "Junttila et al. 2021, Microorganisms 9:1347, DOI 10.3390/microorganisms9071347. Numbers from Table 1 (BGCs by metagenome via fungiSMASH v6.0.0 alpha) and Supplementary Table S3/S4 (assembly + BUSCO Ascomycota).",
+  "_notes": [
+    "BUSCO Ascomycota completeness reported in Junttila2021 Section 3.2 ranges 91.5 - 93.6 % across samples; per-sample exact numbers are taken from the paper text.",
+    "BGC and T1PKS counts in 'bgc_count_fungismash' / 't1pks_count_fungismash' are from Table 1, fungiSMASH column.",
+    "Outperforming this benchmark means: (a) at least matching these counts AND (b) Hyphae adds calibrated novelty + MIBiG distance, which the paper does not score."
+  ],
+  "per_sample": {
+    "L1": {
+      "species": "Cladonia stellaris",
+      "busco_ascomycota_complete": 93.6,
+      "bgc_count_fungismash": 35,
+      "t1pks_count_fungismash": 21,
+      "n50_paper": null,
+      "total_bp_paper": null
+    },
+    "L2": {
+      "species": "Cladonia rangiferina",
+      "busco_ascomycota_complete": 93.2,
+      "bgc_count_fungismash": 28,
+      "t1pks_count_fungismash": 12,
+      "n50_paper": 2059,
+      "total_bp_paper": null
+    },
+    "L3": {
+      "species": "Cladonia arbuscula",
+      "busco_ascomycota_complete": 93.2,
+      "bgc_count_fungismash": 31,
+      "t1pks_count_fungismash": 18,
+      "n50_paper": null,
+      "total_bp_paper": null
+    },
+    "L4": {
+      "species": "Cladonia uncialis",
+      "busco_ascomycota_complete": 91.5,
+      "bgc_count_fungismash": 41,
+      "t1pks_count_fungismash": 28,
+      "n50_paper": 4902,
+      "total_bp_paper": 53000000
+    },
+    "L34": {
+      "species": "Cladonia rangiferina",
+      "busco_ascomycota_complete": 93.2,
+      "bgc_count_fungismash": 33,
+      "t1pks_count_fungismash": 20,
+      "n50_paper": null,
+      "total_bp_paper": null
+    },
+    "L35": {
+      "species": "Cladonia stellaris",
+      "busco_ascomycota_complete": 93.4,
+      "bgc_count_fungismash": 38,
+      "t1pks_count_fungismash": 22,
+      "n50_paper": null,
+      "total_bp_paper": 94000000
+    }
+  },
+  "per_sample_accessions": {
+    "_note": "Per-sample ENA run accessions under PRJEB34718. Replace with verified accessions when running the live benchmark; pipeline does not depend on these strings.",
+    "L1": "ERR_PLACEHOLDER_L1",
+    "L2": "ERR_PLACEHOLDER_L2",
+    "L3": "ERR_PLACEHOLDER_L3",
+    "L4": "ERR_PLACEHOLDER_L4",
+    "L34": "ERR_PLACEHOLDER_L34",
+    "L35": "ERR_PLACEHOLDER_L35"
+  },
+  "paper_total_bgcs_lower": 200,
+  "paper_total_bgcs_upper": 220
+}

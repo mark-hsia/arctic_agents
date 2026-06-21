@@ -4,7 +4,7 @@ This roadmap re-expresses the original Arctic *Cladonia* timeline in terms of ag
 
 A guiding principle: **the eval harness comes first, every month.** No agent ships without its synthetic benchmark passing.
 
-## June — Ingestion + Assembly + Taxonomy (foundation)
+## June — Ingestion + Assembly + Taxonomy (foundation) **[scaffolded]**
 
 **Original deliverable.** Metagenomic assembly and fungal diversity reconstruction from public Arctic *Cladonia* datasets.
 
@@ -19,6 +19,16 @@ A guiding principle: **the eval harness comes first, every month.** No agent shi
 - Artifact store + provenance index working end-to-end (DuckDB + Parquet + content-addressed files).
 
 **Exit criterion.** Re-running the same public dataset twice in deterministic mode yields bit-identical artifacts and reports.
+
+**Status (PR #2).** Scaffold + benchmark harness landed:
+
+- Typed `RunState`, content-addressed artifact store, DuckDB provenance index, budget ledger.
+- Agent base + Coordinator (LangGraph) + Ingestion + Assembly & Binning + Taxonomy & Ecology + BGC Discovery (antiSMASH-only).
+- Tool registry with hosted-first routing; `LocalShellRunner` / `DryRunRunner` / `ReplayRunner`.
+- Eval harness with three benchmark specs (Junttila 2021, Tagirdzhanova 2025, Lee 2024); 34-check pytest suite green without any bio tools.
+- CLI (`hyphae init / run / bench / artifacts / tools`); GitHub Actions CI.
+
+What is left for June's exit criterion: an actual live run against PRJEB34718 (one sample is enough for the deterministic-replay check). That gates on either a self-hosted bio container or a hosted antiSMASH endpoint, neither of which is in this repo's CI today.
 
 ## July — BGC Discovery + Novelty + Coordinator-led prioritization
 

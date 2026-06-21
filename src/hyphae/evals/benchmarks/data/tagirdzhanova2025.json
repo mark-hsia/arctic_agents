@@ -1,0 +1,20 @@
+{
+  "_source": "Tagirdzhanova et al. 2025, BMC Biology, 'A reference metagenome sequence of the lichen Cladonia rangiformis', DOI 10.1186/s12915-025-02428-z. Named compounds and BGC heatmap from Figure 6 / Results section.",
+  "_notes": [
+    "The paper detects a wider BGC catalogue (T1/T2/T3PKS, NRPS, terpene, RiPP, etc.) in the mycobiont with named hits to the listed compounds.",
+    "Outperforming means: (a) recovering all named BGCs below, AND (b) producing additional well-supported orphan BGCs flagged with calibrated novelty scores."
+  ],
+  "named_mycobiont_bgcs": [
+    "grayanic acid",
+    "6-hydroxymellein",
+    "FR901512",
+    "clavaric acid"
+  ],
+  "paper_total_bgcs": 30,
+  "expected_categories_present": [
+    "T1PKS",
+    "NRPS",
+    "terpene",
+    "fungal-RiPP-like"
+  ]
+}

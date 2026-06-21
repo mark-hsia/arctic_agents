@@ -1,0 +1,24 @@
+{
+  "_source": "Lee et al. 2024, Sci Rep, 'Comparative genomics of six Cladonia species', DOI 10.1038/s41598-024-51895-x. BGC counts via antiSMASH fungal v7.0 (default parameters), Figure 2 / Section 'Prediction of BGCs and CAZymes'.",
+  "_notes": [
+    "Counts apply to clean reference genomes (not metagenomes), so they form a per-species ceiling for what Hyphae's MAGs should approach.",
+    "Recovering >= 90 % of these counts on Hyphae's MAGs of the same species means the assembly + binning pathway is competitive with the reference-genome ceiling.",
+    "Outperforming means recovering >= 100 % AND more orphans + named-BGC matches when ensembling with DeepBGC/GECCO (deferred to v0.2)."
+  ],
+  "per_species_bgc_count": {
+    "C. borealis": 33,
+    "C. grayi": 27,
+    "C. macilenta": 31,
+    "C. metacorallifera": 36,
+    "C. rangiferina": 35,
+    "C. uncialis": 28
+  },
+  "per_species_t1pks": {
+    "C. borealis": 14,
+    "C. grayi": 11,
+    "C. macilenta": 12,
+    "C. metacorallifera": 16,
+    "C. rangiferina": 14,
+    "C. uncialis": 11
+  }
+}

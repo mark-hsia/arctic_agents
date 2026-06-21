@@ -1,0 +1,38 @@
+# Sample intent for the Junttila 2021 benchmark.
+# Replace the per-sample `identifier` strings with the actual ENA run
+# accessions under PRJEB34718 when running live (data is gated behind ENA
+# fetcher availability; replay mode below works offline).
+target_pathogen: candida_albicans
+ecosystem: arctic_cladonia
+novelty_priority: 0.5
+deterministic: true
+notes: "Junttila 2021 head-to-head benchmark"
+sample_sources:
+  - kind: ena
+    identifier: ERR_PLACEHOLDER_L1
+    paired: true
+    metadata: { sample_label: L1, species: "Cladonia stellaris" }
+  - kind: ena
+    identifier: ERR_PLACEHOLDER_L2
+    paired: true
+    metadata: { sample_label: L2, species: "Cladonia rangiferina" }
+  - kind: ena
+    identifier: ERR_PLACEHOLDER_L3
+    paired: true
+    metadata: { sample_label: L3, species: "Cladonia arbuscula" }
+  - kind: ena
+    identifier: ERR_PLACEHOLDER_L4
+    paired: true
+    metadata: { sample_label: L4, species: "Cladonia uncialis" }
+  - kind: ena
+    identifier: ERR_PLACEHOLDER_L34
+    paired: true
+    metadata: { sample_label: L34, species: "Cladonia rangiferina" }
+  - kind: ena
+    identifier: ERR_PLACEHOLDER_L35
+    paired: true
+    metadata: { sample_label: L35, species: "Cladonia stellaris" }
+budget:
+  max_tokens: 2_000_000
+  max_dollars: 50.0
+  max_wall_clock_seconds: 86400
