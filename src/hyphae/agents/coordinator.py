@@ -1,85 +1,92 @@
-"""Coordinator (v0.1) — LangGraph state machine.
-
-The Coordinator owns the top-level DAG. v0.1 is a deterministic rule-based
-plan: ``Ingestion -> Assembly -> Taxonomy -> BGCDiscovery``. Replanning logic
-and an LLM-backed planner are deferred to v0.2 (July milestone) where they
-can be evaluated against the now-existing benchmark harness.
-
-We use ``langgraph`` for the state machine even though the v0.1 graph is a
-straight line, so the state-machine structure is in place when we add Critic
-loops and parallel fan-out.
-"""
+"""Planner → critic → coordinator execution loop."""
 
 from __future__ import annotations
 
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-
-from langgraph.graph import END, StateGraph
-from typing_extensions import TypedDict
 
 from ..state import RunState, RunStatePatch, apply_patch
 from .assembly import AssemblyAgent
 from .base import Agent, AgentContext
 from .bgc_discovery import BGCDiscoveryAgent
+from .critic import CriticAgent
 from .ingestion import IngestionAgent
+from .planner import PlannerAgent, PlanStep
 from .taxonomy import TaxonomyAgent
 
 
-class GraphState(TypedDict):
-    run_state: RunState
+def default_agents() -> dict[str, Agent]:
+    """Discoverable built-in agent registry; callers may extend or replace it."""
+    agents: Iterable[Agent] = (IngestionAgent(), AssemblyAgent(), TaxonomyAgent(), BGCDiscoveryAgent())
+    return {agent.name: agent for agent in agents}
 
 
 @dataclass
 class CoordinatorResult:
     final_state: RunState
     agents_run: list[str]
-
-
-def _make_node(agent: Agent, ctx: AgentContext):
-    def node(graph_state: GraphState) -> GraphState:
-        state = graph_state["run_state"]
-        patch: RunStatePatch = agent.step(state, ctx)
-        agent.validate_patch(patch)
-        new_state = apply_patch(state, patch)
-        return {"run_state": new_state}
-
-    return node
-
-
-def build_default_graph(ctx: AgentContext):
-    """Wire the June-milestone agent path."""
-    ingestion = IngestionAgent()
-    assembly = AssemblyAgent()
-    taxonomy = TaxonomyAgent()
-    bgc = BGCDiscoveryAgent()
-
-    sg: StateGraph = StateGraph(GraphState)
-    sg.add_node("ingestion", _make_node(ingestion, ctx))
-    sg.add_node("assembly", _make_node(assembly, ctx))
-    sg.add_node("taxonomy", _make_node(taxonomy, ctx))
-    sg.add_node("bgc_discovery", _make_node(bgc, ctx))
-
-    sg.set_entry_point("ingestion")
-    sg.add_edge("ingestion", "assembly")
-    sg.add_edge("assembly", "taxonomy")
-    sg.add_edge("taxonomy", "bgc_discovery")
-    sg.add_edge("bgc_discovery", END)
-
-    return sg.compile()
+    plan: list[PlanStep]
+    failures: list[str]
 
 
 class Coordinator:
-    """Convenience facade that compiles the graph once and runs it."""
+    """Execute a reviewed plan while preserving partial, auditable progress."""
 
-    AGENT_ORDER = ("ingestion", "assembly", "taxonomy", "bgc_discovery")
-
-    def __init__(self, ctx: AgentContext):
+    def __init__(self, ctx: AgentContext, *, planner: PlannerAgent | None = None,
+                 critic: CriticAgent | None = None, agents: dict[str, Agent] | None = None) -> None:
         self.ctx = ctx
-        self._graph = build_default_graph(ctx)
+        self.planner = planner or PlannerAgent()
+        self.critic = critic or CriticAgent()
+        self.agents = agents or default_agents()
 
     def run(self, initial: RunState) -> CoordinatorResult:
-        final = self._graph.invoke({"run_state": initial})
-        return CoordinatorResult(
-            final_state=final["run_state"],
-            agents_run=list(self.AGENT_ORDER),
+        proposed = self.planner.generate_plan(initial)
+        review = self.critic.review_plan(proposed, set(self.agents))
+        if not review.accepted:
+            review = self.critic.review_plan(self.planner.static_plan(), set(self.agents))
+        state = initial
+        rationale = self.ctx.make_rationale(
+            "coordinator", "Execution plan accepted: " + ", ".join(s.agent_name for s in review.steps)
         )
+        self.ctx.record(rationales=[rationale])
+        state = apply_patch(state, RunStatePatch(rationales=[rationale]))
+        agents_run: list[str] = []
+        failures: list[str] = []
+        for step in review.steps:
+            if self.ctx.budget.over_budget():
+                failures.append("budget exhausted before " + step.agent_name)
+                break
+            started = time.monotonic()
+            try:
+                agent = self.agents[step.agent_name]
+                self.ctx.step_params = dict(step.params or {})
+                patch = agent.step(state, self.ctx)
+                agent.validate_patch(patch)
+                state = apply_patch(state, patch)
+                self.ctx.run.executed_steps.append(
+                    {
+                        "tool_id": step.agent_name,
+                        "kwargs": step.params or {},
+                        "output_paths": getattr(patch, "output_paths", []),
+                        "duration_seconds": time.monotonic() - started,
+                    }
+                )
+                agents_run.append(step.agent_name)
+            except Exception as exc:
+                failures.append(f"{step.agent_name}: {exc}")
+                rationale = self.ctx.make_rationale(
+                    "coordinator", f"Agent {step.agent_name} failed and the run continued: {exc}"
+                )
+                self.ctx.record(rationales=[rationale])
+                state = apply_patch(state, RunStatePatch(rationales=[rationale]))
+            finally:
+                self.ctx.step_params = {}
+                entry = self.ctx.budget.charge(step.agent_name, wall_clock_seconds=time.monotonic() - started)
+                state = apply_patch(state, RunStatePatch(budget_entries=[entry]))
+        return CoordinatorResult(state, agents_run, review.steps, failures)
+
+
+def build_default_graph(ctx: AgentContext) -> Coordinator:
+    """Backward-compatible factory for the default dynamic coordinator."""
+    return Coordinator(ctx)

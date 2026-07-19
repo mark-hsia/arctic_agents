@@ -11,6 +11,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..artifacts import ArtifactStore
 from ..budget import BudgetLedger
@@ -33,6 +34,7 @@ class AgentContext:
     tools: ToolRegistry
     runner: WorkflowRunner
     deterministic: bool = False
+    step_params: dict[str, Any] = field(default_factory=dict)
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger("hyphae"))
 
     def make_rationale(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from hyphae.agents.bgc_discovery import BGCDiscoveryAgent
 from hyphae.runner import make_run
-from hyphae.state import Intent, MAG, RunState
+from hyphae.state import MAG, Intent, RunState
 from hyphae.tools.base import Tool, ToolRunResult
 from hyphae.tools.registry import ToolRegistry
 from hyphae.workflows.runner import StepSpec, WorkflowRunner

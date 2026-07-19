@@ -12,6 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .base import Tool, ToolUnavailable
+from .megahit import MegahitTool
+
+BUILTIN_TOOL_MAPPINGS: dict[str, Tool] = {
+    "assembly.megahit": MegahitTool(),
+}
 
 
 @dataclass

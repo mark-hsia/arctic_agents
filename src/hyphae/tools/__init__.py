@@ -10,7 +10,7 @@ from .base import Tool, ToolRunResult, ToolUnavailable, run_shell
 from .binners import CONCOCT, DASTool, MetaBAT2
 from .fastp import Fastp
 from .qc import Busco, CheckM2, EukRep
-from .registry import ToolEntry, ToolRegistry
+from .registry import BUILTIN_TOOL_MAPPINGS, ToolEntry, ToolRegistry
 from .sra import FasterqDump, LocalFastqAdapter
 from .sra_download import SraDownloadTool
 
@@ -50,6 +50,7 @@ def default_registry() -> ToolRegistry:
     reg.register(Fastp())
     reg.register(MetaSpades())
     reg.register(Megahit())
+    reg.register(BUILTIN_TOOL_MAPPINGS["assembly.megahit"])
     reg.register(MetaBAT2())
     reg.register(CONCOCT())
     reg.register(DASTool())

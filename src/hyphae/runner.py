@@ -1,18 +1,21 @@
-"""Top‑level run orchestration.
+"""Top-level run orchestration.
 Builds an :class:`AgentContext`, runs the Coordinator, returns the final
 ``RunState``. Used by the CLI and by the eval harness.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .agents.base import AgentContext
 from .agents.coordinator import Coordinator, CoordinatorResult
+from .agents.planner import PlannerAgent
 from .artifacts import ArtifactStore
 from .budget import BudgetLedger
 from .ids import new_run_id
+from .llm import LLMClient
 from .provenance import ProvenanceIndex
 from .state import Intent, RunState
 from .tools import default_registry
@@ -25,6 +28,7 @@ class HyphaeRun:
     """Container for everything needed during a single Hyphae execution."""
     workdir: Path
     run_id: str
+    intent: Intent
     artifact_store: ArtifactStore
     provenance: ProvenanceIndex
     budget: BudgetLedger
@@ -33,10 +37,12 @@ class HyphaeRun:
     deterministic: bool = False
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger("hyphae"))
     manifest_path: Path | None = None
+    executed_steps: list[dict] = field(default_factory=list)
+    final_state: RunState | None = None
 
     def context(self) -> AgentContext:
         """Build the AgentContext that is passed to every agent."""
-        return AgentContext(
+        ctx = AgentContext(
             run_id=self.run_id,
             workdir=self.workdir,
             artifact_store=self.artifact_store,
@@ -47,37 +53,27 @@ class HyphaeRun:
             deterministic=self.deterministic,
             logger=self.logger,
         )
+        ctx.run = self
+        ctx.intent = self.intent
+        return ctx
 
-    # Manifest handling
-    def write_manifest(self) -> None:
-        """
-        Write a replay manifest JSON to ``self.manifest_path``.
-        If the context can produce a full manifest object, we serialize that.
-        Otherwise we fall back to dumping the final RunState (which is still
-        sufficient for a deterministic replay).
-        """
-        if not self.manifest_path:
-            return  # nothing to do
-
-        try:
-            # Most recent code paths expose a ``manifest()`` method on the
-            # AgentContext (which builds the full provenance‑indexed manifest).
-            manifest_obj = self.context().manifest()
-        except Exception:  # pragma: no cover – defensive fallback
-            # As a fallback, use the final RunState that was stored on the object
-            # after the pipeline finished.  The CLI will set ``self.final_state``
-            # before calling this method.
-            if hasattr(self, "final_state"):
-                manifest_obj = self.final_state
-            else:
-                raise RuntimeError(
-                    "No manifest source available – ensure the pipeline has "
-                    "completed and `self.final_state` is set before calling "
-                    "`write_manifest()`."
+    def write_manifest(self, state: RunState) -> None:
+        """Persist the fully resolved state used for a deterministic audit/replay."""
+        if self.manifest_path:
+            self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            self.final_state = state
+            self.manifest_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": self.run_id,
+                        "intent": self.context().intent.model_dump(),
+                        "steps": self.executed_steps,
+                        "final_state": self.final_state.model_dump(),
+                    },
+                    indent=2,
+                    default=str,
                 )
-
-        # Write the JSON representation (pretty‑printed) to the requested file.
-        self.manifest_path.write_text(manifest_obj.model_dump_json(indent=2))
+            )
 
 
 def make_run(
@@ -112,6 +108,7 @@ def make_run(
         HyphaeRun(
             workdir=workdir,
             run_id=run_id,
+            intent=intent,
             artifact_store=artifact_store,
             provenance=provenance,
             budget=budget,
@@ -128,3 +125,10 @@ def run_default_pipeline(run: HyphaeRun, initial: RunState) -> CoordinatorResult
     """Execute the default pipeline (Coordinator → agents)."""
     coord = Coordinator(run.context())
     return coord.run(initial)
+
+
+def run_pipeline(
+    run: HyphaeRun, initial: RunState, *, llm: LLMClient | None = None
+) -> CoordinatorResult:
+    """Execute the reviewed dynamic plan with an optional LLM planner."""
+    return Coordinator(run.context(), planner=PlannerAgent(llm)).run(initial)

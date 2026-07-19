@@ -1,8 +1,8 @@
 # src/hyphae/tools/sra_download.py
 from pathlib import Path
-from typing import List
 
-from hyphae.tools.base import Tool, ToolRunResult, ToolUnavailable
+from hyphae.tools.base import Tool, ToolRunResult
+
 
 class SraDownloadTool(Tool):
     """
@@ -16,8 +16,8 @@ class SraDownloadTool(Tool):
         out_path = Path(outdir) if outdir else Path.cwd() / "sra_mock"
         out_path.mkdir(parents=True, exist_ok=True)
 
-        # Create two empty FASTQ files to mimic paired‑end data
-        fastq_files: List[str] = []
+        # Create two empty FASTQ files to mimic paired-end data.
+        fastq_files: list[str] = []
         for i in (1, 2):
             fp = out_path / f"{accession}_{i}.fastq"
             fp.touch()                     # creates an empty file

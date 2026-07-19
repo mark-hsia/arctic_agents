@@ -86,7 +86,6 @@ class IngestionAgent(Agent):
                         mime_type="text/x-fastq",
                     )
                     artifacts.append(art)
-
             qc_verdict = QcVerdict.pass_
             qc_artifact_id: str | None = None
             n_reads: int | None = None

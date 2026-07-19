@@ -19,8 +19,9 @@ from rich.console import Console
 from rich.table import Table
 
 from .evals import all_benchmarks, render_combined_markdown
+from .llm import OpenAIClient
 from .provenance import ProvenanceIndex
-from .runner import make_run, run_default_pipeline
+from .runner import make_run, run_pipeline
 from .state import Intent, RunState
 from .tools import default_registry
 
@@ -54,6 +55,8 @@ def run(
         help="Write a replay manifest JSON to the given path (for later deterministic replay).",
     ),
     deterministic: bool = typer.Option(False, help="Pin seeds, replay-only mode."),
+    planner: str = typer.Option("deterministic", help="Planner backend: deterministic or openai."),
+    model: str = typer.Option("gpt-5", help="OpenAI model when --planner=openai."),
 ) -> None:
     """Run the default pipeline."""
     workdir = workdir.resolve()
@@ -66,15 +69,17 @@ def run(
         deterministic=deterministic,
         manifest_path=manifest_path,
     )
-    result = run_default_pipeline(hrun, initial)
+    if planner not in {"deterministic", "openai"}:
+        raise typer.BadParameter("planner must be 'deterministic' or 'openai'")
+    if deterministic and planner == "openai":
+        raise typer.BadParameter("deterministic runs cannot use an OpenAI planner")
+    llm = OpenAIClient(model=model) if planner == "openai" else None
+    result = run_pipeline(hrun, initial, llm=llm)
     final = result.final_state
     (workdir / "run_state.json").write_text(final.model_dump_json(indent=2))
-    hrun.final_state = final
-
-# If the user asked for a manifest, write it now.
     if manifest_path:
         try:
-            hrun.write_manifest()
+            hrun.write_manifest(final)
             console.print(f"[green]Manifest written to {manifest_path}[/green]")
         except Exception as exc:
             console.print(f"[red]Failed to write manifest: {exc}[/red]")
