@@ -12,6 +12,7 @@ from .fastp import Fastp
 from .qc import Busco, CheckM2, EukRep
 from .registry import ToolEntry, ToolRegistry
 from .sra import FasterqDump, LocalFastqAdapter
+from .sra_download import SraDownloadTool
 
 __all__ = [
     "CONCOCT",
@@ -57,4 +58,8 @@ def default_registry() -> ToolRegistry:
     reg.register(EukRep())
     reg.register(AntiSmashWebClient(), prepend=True)
     reg.register(LocalAntiSmash())
+    reg.register(SraDownloadTool())
+    class ReadsFetchAlias(SraDownloadTool):
+        tool_id = "reads.fetch"
+    reg.register(ReadsFetchAlias(), prepend=True)
     return reg

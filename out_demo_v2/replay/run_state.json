@@ -1,0 +1,333 @@
+{
+  "run_id": "run_aaae05c8af4a1316",
+  "intent": {
+    "target_pathogen": "candida_albicans",
+    "target_proteins": [],
+    "ecosystem": "arctic_cladonia",
+    "sample_sources": [
+      {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L1",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L1",
+          "species": "Cladonia stellaris"
+        }
+      },
+      {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L2",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L2",
+          "species": "Cladonia rangiferina"
+        }
+      },
+      {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L3",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L3",
+          "species": "Cladonia arbuscula"
+        }
+      },
+      {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L4",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L4",
+          "species": "Cladonia uncialis"
+        }
+      },
+      {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L34",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L34",
+          "species": "Cladonia rangiferina"
+        }
+      },
+      {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L35",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L35",
+          "species": "Cladonia stellaris"
+        }
+      }
+    ],
+    "novelty_priority": 0.5,
+    "budget": {
+      "max_tokens": 2000000,
+      "max_dollars": 50.0,
+      "max_wall_clock_seconds": 86400
+    },
+    "deterministic": true,
+    "notes": "Junttila 2021 head-to-head benchmark"
+  },
+  "samples": [
+    {
+      "sample_id": "S_3945e4a4e73b",
+      "source": {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L1",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L1",
+          "species": "Cladonia stellaris"
+        }
+      },
+      "raw_artifact_ids": [],
+      "qc_artifact_id": null,
+      "qc_verdict": "marginal",
+      "n_reads": null,
+      "mean_read_length": null,
+      "metadata": {
+        "sample_label": "L1",
+        "species": "Cladonia stellaris"
+      }
+    },
+    {
+      "sample_id": "S_9dc26adf9c66",
+      "source": {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L2",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L2",
+          "species": "Cladonia rangiferina"
+        }
+      },
+      "raw_artifact_ids": [],
+      "qc_artifact_id": null,
+      "qc_verdict": "marginal",
+      "n_reads": null,
+      "mean_read_length": null,
+      "metadata": {
+        "sample_label": "L2",
+        "species": "Cladonia rangiferina"
+      }
+    },
+    {
+      "sample_id": "S_f81b1944af2d",
+      "source": {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L3",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L3",
+          "species": "Cladonia arbuscula"
+        }
+      },
+      "raw_artifact_ids": [],
+      "qc_artifact_id": null,
+      "qc_verdict": "marginal",
+      "n_reads": null,
+      "mean_read_length": null,
+      "metadata": {
+        "sample_label": "L3",
+        "species": "Cladonia arbuscula"
+      }
+    },
+    {
+      "sample_id": "S_939f8d87e583",
+      "source": {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L4",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L4",
+          "species": "Cladonia uncialis"
+        }
+      },
+      "raw_artifact_ids": [],
+      "qc_artifact_id": null,
+      "qc_verdict": "marginal",
+      "n_reads": null,
+      "mean_read_length": null,
+      "metadata": {
+        "sample_label": "L4",
+        "species": "Cladonia uncialis"
+      }
+    },
+    {
+      "sample_id": "S_d6e8fe7f7c09",
+      "source": {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L34",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L34",
+          "species": "Cladonia rangiferina"
+        }
+      },
+      "raw_artifact_ids": [],
+      "qc_artifact_id": null,
+      "qc_verdict": "marginal",
+      "n_reads": null,
+      "mean_read_length": null,
+      "metadata": {
+        "sample_label": "L34",
+        "species": "Cladonia rangiferina"
+      }
+    },
+    {
+      "sample_id": "S_688a561edfd2",
+      "source": {
+        "kind": "ena",
+        "identifier": "ERR_PLACEHOLDER_L35",
+        "paired": true,
+        "metadata": {
+          "sample_label": "L35",
+          "species": "Cladonia stellaris"
+        }
+      },
+      "raw_artifact_ids": [],
+      "qc_artifact_id": null,
+      "qc_verdict": "marginal",
+      "n_reads": null,
+      "mean_read_length": null,
+      "metadata": {
+        "sample_label": "L35",
+        "species": "Cladonia stellaris"
+      }
+    }
+  ],
+  "assemblies": {},
+  "mags": [],
+  "taxonomy": {},
+  "bgcs": [],
+  "gcfs": [],
+  "novelty": {},
+  "structures": {},
+  "docking": {},
+  "literature": {},
+  "rationales": [
+    {
+      "rationale_id": "rat_8a3db6b1c637",
+      "producer_agent": "ingestion",
+      "claim": "Ingestion deferred for S_3945e4a4e73b: No replay entry for step 'ingest.fetch.S_3945e4a4e73b' (tool_id=reads.fetch). Sample recorded with no raw artifacts.",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.576229Z"
+    },
+    {
+      "rationale_id": "rat_e845a2865a66",
+      "producer_agent": "ingestion",
+      "claim": "Ingestion deferred for S_9dc26adf9c66: No replay entry for step 'ingest.fetch.S_9dc26adf9c66' (tool_id=reads.fetch). Sample recorded with no raw artifacts.",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.576321Z"
+    },
+    {
+      "rationale_id": "rat_8fe5bad55dac",
+      "producer_agent": "ingestion",
+      "claim": "Ingestion deferred for S_f81b1944af2d: No replay entry for step 'ingest.fetch.S_f81b1944af2d' (tool_id=reads.fetch). Sample recorded with no raw artifacts.",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.576393Z"
+    },
+    {
+      "rationale_id": "rat_be57cc0cefea",
+      "producer_agent": "ingestion",
+      "claim": "Ingestion deferred for S_939f8d87e583: No replay entry for step 'ingest.fetch.S_939f8d87e583' (tool_id=reads.fetch). Sample recorded with no raw artifacts.",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.576459Z"
+    },
+    {
+      "rationale_id": "rat_b6a535bc4d1c",
+      "producer_agent": "ingestion",
+      "claim": "Ingestion deferred for S_d6e8fe7f7c09: No replay entry for step 'ingest.fetch.S_d6e8fe7f7c09' (tool_id=reads.fetch). Sample recorded with no raw artifacts.",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.576520Z"
+    },
+    {
+      "rationale_id": "rat_687cd34cf19b",
+      "producer_agent": "ingestion",
+      "claim": "Ingestion deferred for S_688a561edfd2: No replay entry for step 'ingest.fetch.S_688a561edfd2' (tool_id=reads.fetch). Sample recorded with no raw artifacts.",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.576574Z"
+    },
+    {
+      "rationale_id": "rat_301555d9272c",
+      "producer_agent": "assembly",
+      "claim": "Assembly deferred for S_3945e4a4e73b: No replay entry for step 'asm.megahit.S_3945e4a4e73b' (tool_id=assembly.megahit)",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.592902Z"
+    },
+    {
+      "rationale_id": "rat_c7b123a74695",
+      "producer_agent": "assembly",
+      "claim": "Assembly deferred for S_9dc26adf9c66: No replay entry for step 'asm.megahit.S_9dc26adf9c66' (tool_id=assembly.megahit)",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.592968Z"
+    },
+    {
+      "rationale_id": "rat_cca854d1ec91",
+      "producer_agent": "assembly",
+      "claim": "Assembly deferred for S_f81b1944af2d: No replay entry for step 'asm.megahit.S_f81b1944af2d' (tool_id=assembly.megahit)",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.593013Z"
+    },
+    {
+      "rationale_id": "rat_2b9be3c83797",
+      "producer_agent": "assembly",
+      "claim": "Assembly deferred for S_939f8d87e583: No replay entry for step 'asm.megahit.S_939f8d87e583' (tool_id=assembly.megahit)",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.593051Z"
+    },
+    {
+      "rationale_id": "rat_7715aebd0ae0",
+      "producer_agent": "assembly",
+      "claim": "Assembly deferred for S_d6e8fe7f7c09: No replay entry for step 'asm.megahit.S_d6e8fe7f7c09' (tool_id=assembly.megahit)",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.593088Z"
+    },
+    {
+      "rationale_id": "rat_5473e49d97e7",
+      "producer_agent": "assembly",
+      "claim": "Assembly deferred for S_688a561edfd2: No replay entry for step 'asm.megahit.S_688a561edfd2' (tool_id=assembly.megahit)",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "critic_comments": [],
+      "created_at": "2026-07-19T15:17:28.593123Z"
+    }
+  ],
+  "artifacts": [],
+  "budget_entries": []
+}

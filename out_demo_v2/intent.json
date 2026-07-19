@@ -1,0 +1,69 @@
+{
+  "target_pathogen": "candida_albicans",
+  "target_proteins": [],
+  "ecosystem": "arctic_cladonia",
+  "sample_sources": [
+    {
+      "kind": "ena",
+      "identifier": "ERR_PLACEHOLDER_L1",
+      "paired": true,
+      "metadata": {
+        "sample_label": "L1",
+        "species": "Cladonia stellaris"
+      }
+    },
+    {
+      "kind": "ena",
+      "identifier": "ERR_PLACEHOLDER_L2",
+      "paired": true,
+      "metadata": {
+        "sample_label": "L2",
+        "species": "Cladonia rangiferina"
+      }
+    },
+    {
+      "kind": "ena",
+      "identifier": "ERR_PLACEHOLDER_L3",
+      "paired": true,
+      "metadata": {
+        "sample_label": "L3",
+        "species": "Cladonia arbuscula"
+      }
+    },
+    {
+      "kind": "ena",
+      "identifier": "ERR_PLACEHOLDER_L4",
+      "paired": true,
+      "metadata": {
+        "sample_label": "L4",
+        "species": "Cladonia uncialis"
+      }
+    },
+    {
+      "kind": "ena",
+      "identifier": "ERR_PLACEHOLDER_L34",
+      "paired": true,
+      "metadata": {
+        "sample_label": "L34",
+        "species": "Cladonia rangiferina"
+      }
+    },
+    {
+      "kind": "ena",
+      "identifier": "ERR_PLACEHOLDER_L35",
+      "paired": true,
+      "metadata": {
+        "sample_label": "L35",
+        "species": "Cladonia stellaris"
+      }
+    }
+  ],
+  "novelty_priority": 0.5,
+  "budget": {
+    "max_tokens": 2000000,
+    "max_dollars": 50.0,
+    "max_wall_clock_seconds": 86400
+  },
+  "deterministic": true,
+  "notes": "Junttila 2021 head-to-head benchmark"
+}

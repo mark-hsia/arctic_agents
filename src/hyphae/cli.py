@@ -48,6 +48,11 @@ def run(
     workdir: Path = typer.Option(..., help="Working directory for the run."),
     intent: Path | None = typer.Option(None, help="Optional intent override."),
     replay: Path | None = typer.Option(None, help="Replay manifest JSON."),
+    manifest_path: Path | None = typer.Option(
+        None,
+        "--manifest-path",
+        help="Write a replay manifest JSON to the given path (for later deterministic replay).",
+    ),
     deterministic: bool = typer.Option(False, help="Pin seeds, replay-only mode."),
 ) -> None:
     """Run the default pipeline."""
@@ -59,10 +64,20 @@ def run(
         intent_obj,
         replay_manifest=replay,
         deterministic=deterministic,
+        manifest_path=manifest_path,
     )
     result = run_default_pipeline(hrun, initial)
     final = result.final_state
     (workdir / "run_state.json").write_text(final.model_dump_json(indent=2))
+    hrun.final_state = final
+
+# If the user asked for a manifest, write it now.
+    if manifest_path:
+        try:
+            hrun.write_manifest()
+            console.print(f"[green]Manifest written to {manifest_path}[/green]")
+        except Exception as exc:
+            console.print(f"[red]Failed to write manifest: {exc}[/red]")
     console.print(
         f"[green]Run {hrun.run_id} complete[/green]: "
         f"{len(final.samples)} samples, {len(final.mags)} MAGs, "
