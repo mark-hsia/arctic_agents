@@ -56,19 +56,42 @@ class BGCDiscoveryAgent(Agent):
         new_bgcs: list[BGC] = []
         new_artifacts = []
         new_rationales = []
+        artifacts_by_id = {artifact.artifact_id: artifact for artifact in state.artifacts}
 
         for mag in state.mags:
             if mag.is_fungal is False:
                 continue  # explicitly non-fungal — skip in v0.1 antifungal scope
 
-            state.assemblies.get(mag.sample_id)
+            fasta_artifact = artifacts_by_id.get(mag.fasta_artifact_id)
+            if fasta_artifact is None:
+                new_rationales.append(
+                    ctx.make_rationale(
+                        self.name,
+                        f"antiSMASH deferred for MAG {mag.mag_id}: "
+                        f"FASTA artifact {mag.fasta_artifact_id!r} is not in run state.",
+                    )
+                )
+                continue
+
+            fasta_path = ctx.artifact_store.resolve(fasta_artifact)
+            if not fasta_path.is_file():
+                new_rationales.append(
+                    ctx.make_rationale(
+                        self.name,
+                        f"antiSMASH deferred for MAG {mag.mag_id}: "
+                        f"FASTA artifact {mag.fasta_artifact_id!r} is missing from the artifact store.",
+                        evidence_artifact_ids=[fasta_artifact.artifact_id],
+                    )
+                )
+                continue
+
             mag_workdir = ctx.workdir / "bgc" / mag.mag_id
             mag_workdir.mkdir(parents=True, exist_ok=True)
             step = StepSpec(
                 step_id=f"antismash.{mag.mag_id}",
                 tool_id="bgc.antismash",
                 kwargs={
-                    "fasta": str(mag_workdir / f"{mag.mag_id}.fasta"),
+                    "fasta": str(fasta_path),
                     "outdir": str(mag_workdir / "antismash"),
                     "taxon": "fungi",
                 },
