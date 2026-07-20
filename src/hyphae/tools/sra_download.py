@@ -1,5 +1,6 @@
 # src/hyphae/tools/sra_download.py
 from pathlib import Path
+from typing import Any
 
 from hyphae.tools.base import Tool, ToolRunResult
 
@@ -11,7 +12,9 @@ class SraDownloadTool(Tool):
     """
     tool_id = "sra-download"
 
-    def run(self, accession: str, outdir: str | None = None) -> ToolRunResult:
+    def run(self, **kwargs: Any) -> ToolRunResult:
+        accession: str = kwargs["accession"]
+        outdir: str | None = kwargs.get("outdir")
         # Determine the output directory (use the provided outdir or a temp one)
         out_path = Path(outdir) if outdir else Path.cwd() / "sra_mock"
         out_path.mkdir(parents=True, exist_ok=True)

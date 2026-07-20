@@ -1,23 +1,20 @@
-"""Typed tool registry with hosted-vs-local routing.
-
+"""Typed tool registry with hosted‑vs‑local routing.
 Agents request a tool by ``tool_id``. The registry returns the first available
 implementation in order: hosted client (preferred) -> local binary wrapper ->
 raises :class:`ToolUnavailable`.
-
-This is the seam that makes ecosystem and target-pack swaps tractable.
+This is the seam that makes ecosystem and target‑pack swaps tractable.
 """
-
 from __future__ import annotations
-
 from dataclasses import dataclass, field
-
 from .base import Tool, ToolUnavailable
 from .megahit import MegahitTool
+from .fastqc  import FastqcTool   # <-- NEW IMPORT
 
+# Built‑in tools that are always available (local wrappers)
 BUILTIN_TOOL_MAPPINGS: dict[str, Tool] = {
     "assembly.megahit": MegahitTool(),
+    "reads.qc":        FastqcTool(),   # <-- NEW ENTRY
 }
-
 
 @dataclass
 class ToolEntry:
@@ -33,10 +30,12 @@ class ToolEntry:
             f"Tried: {[type(i).__name__ for i in self.implementations]}"
         )
 
-
 class ToolRegistry:
     def __init__(self) -> None:
+        # Populate the registry with the built‑in mappings
         self._entries: dict[str, ToolEntry] = {}
+        for tid, tool in BUILTIN_TOOL_MAPPINGS.items():
+            self.register(tool)          # registers with default (append) order
 
     def register(self, tool: Tool, *, prepend: bool = False) -> None:
         entry = self._entries.setdefault(tool.tool_id, ToolEntry(tool_id=tool.tool_id))
