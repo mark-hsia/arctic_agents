@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 import subprocess
 import tempfile
@@ -26,11 +25,12 @@ class TargetDockingAgent:
         use_vina: bool = False,
         vina_bin: str = "vina",
     ) -> Manifest:
-        """Dock structures, preferring Vina only when explicitly requested.
-
-        Vina/RDKit failures are isolated per structure and target, so the
-        deterministic ranking remains available in minimal installations.
-        """
+        """Dock structures with Vina only; no heuristic ranking is emitted."""
+        if not use_vina:
+            raise RuntimeError(
+                "Real docking requires use_vina=True. Install AutoDock Vina and provide receptor_path "
+                "for every target; heuristic docking is disabled."
+            )
         structures = manifest.final_state.get("structures", [])
         docking = manifest.final_state.setdefault("docking", [])
         if not isinstance(docking, list):
@@ -45,9 +45,7 @@ class TargetDockingAgent:
                 rejected += 1
                 continue
             for target, target_data in targets.items():
-                score, source = self._score_structure(
-                    record["smiles"], target_data, use_vina, vina_bin
-                )
+                score, source = self._score_structure(record["smiles"], target_data, vina_bin)
                 accepted.append({
                     "compound_id": record["id"],
                     "target": target,
@@ -85,16 +83,14 @@ class TargetDockingAgent:
         }
 
     def _score_structure(
-        self, smiles: str, target_data: dict[str, Any], use_vina: bool, vina_bin: str
+        self, smiles: str, target_data: dict[str, Any], vina_bin: str
     ) -> tuple[float, str]:
-        if not use_vina:
-            return self._heuristic_vina_score(smiles), "heuristic"
         receptor = Path(str(target_data.get("receptor_path", "")))
         if not receptor.is_file():
-            return self._heuristic_vina_score(smiles), "heuristic"
+            raise FileNotFoundError("Target receptor_path is required and must reference a Vina-ready receptor file")
         ligand_path = self._smiles_to_pdb(smiles)
         if ligand_path is None:
-            return self._heuristic_vina_score(smiles), "heuristic"
+            raise RuntimeError("RDKit could not convert SMILES; install RDKit and provide a valid structure")
         try:
             result = subprocess.run(
                 [vina_bin, "--ligand", str(ligand_path), "--receptor", str(receptor), "--exhaustiveness", "8"],
@@ -104,9 +100,11 @@ class TargetDockingAgent:
                 check=False,
             )
             score = self._parse_vina_affinity(result.stdout) if result.returncode == 0 else None
-            return (score, "vina") if score is not None else (self._heuristic_vina_score(smiles), "heuristic")
-        except Exception:
-            return self._heuristic_vina_score(smiles), "heuristic"
+            if score is None:
+                raise RuntimeError(f"Vina failed to return an affinity: {result.stderr[-500:]}")
+            return score, "vina"
+        except Exception as exc:
+            raise RuntimeError(f"Vina docking failed: {exc}") from exc
         finally:
             ligand_path.unlink(missing_ok=True)
 
@@ -143,18 +141,6 @@ class TargetDockingAgent:
             "id": str(structure.get("structure_id", structure.get("id", "unknown_structure"))),
             "smiles": str(structure.get("smiles", "")),
         }
-
-    @staticmethod
-    def _vina_score(smiles: str) -> float:
-        aromatic_bonus = 0.5 if ("aromatic" in smiles.lower() or re.search(r"[cn]", smiles)) else 0.0
-        halogen_bonus = 0.3 if ("halogen" in smiles.lower() or re.search(r"Cl|Br|F|I", smiles)) else 0.0
-        jitter = (int(hashlib.sha256(smiles.encode()).hexdigest()[:4], 16) % 41 - 20) / 100
-        return round(-7.5 + aromatic_bonus + halogen_bonus + jitter, 3)
-
-    @staticmethod
-    def _heuristic_vina_score(smiles: str) -> float:
-        """A simple fallback score for environments without Vina/RDKit."""
-        return round(-7.5 + (0.3 if "O" in smiles else 0.0) + (0.2 if "N" in smiles else 0.0), 3)
 
     @staticmethod
     def _molecular_weight(smiles: str) -> float:

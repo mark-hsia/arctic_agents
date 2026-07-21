@@ -7,14 +7,16 @@ Decisions:
   * compute assembly stats (N50, total length, n_contigs) on whatever FASTA
     the runner produces — this works for replay-mode too.
 
-Heavy steps are submitted to ``ctx.runner``. Binning + MAG QC follow the same
-pattern; v0.1 advances the contigs as a single placeholder MAG when binning
-tools are not available, so downstream BGC discovery can still run.
+Heavy steps are submitted to ``ctx.runner``. Binning + MAG QC require their
+respective real tools; unavailable stages are reported rather than fabricated.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+from typing import Any
 
 from ..ids import short_hash
 from ..state import (
@@ -48,6 +50,70 @@ class AssemblyAgent(Agent):
     )
 
     METASPADES_READ_THRESHOLD = 50_000_000
+
+    def assemble(self, manifest: Any, workdir: Path) -> Any:
+        """Run a real assembler for every manifest sample or raise a remedy error.
+
+        This manifest-facing entry point has no replay or fabricated-output
+        path. It is used by the real orchestrator.
+        """
+        sources = manifest.intent.get("sample_sources", [])
+        if not isinstance(sources, list) or not sources:
+            raise RuntimeError("No sample_sources in manifest intent; provide resolved FASTQ paths.")
+        workdir.mkdir(parents=True, exist_ok=True)
+        assemblies: dict[str, str] = {}
+        from ..manifest import Artifact as ManifestArtifact
+
+        for index, source in enumerate(sources):
+            if not isinstance(source, dict):
+                raise TypeError("Each sample source must be a dictionary")
+            sample_id = str(source.get("sample_id") or source.get("identifier") or f"sample_{index}")
+            paths = [Path(path) for path in source.get("resolved_paths", source.get("paths", []))]
+            if not paths:
+                raise FileNotFoundError(f"No resolved FASTQ paths for {sample_id}; run SRA ingestion first.")
+            missing = [str(path) for path in paths if not path.is_file()]
+            if missing:
+                raise FileNotFoundError(f"FASTQ missing for {sample_id}: {', '.join(missing)}")
+            output_dir, assembler, contigs = self._run_real_assembler(sample_id, paths, workdir)
+            artifact = ManifestArtifact(
+                artifact_id=f"art_asm_{sample_id}",
+                path=str(contigs),
+                producer_agent="assembly",
+                mime_type="text/x-fasta",
+                metadata={"assembler": assembler, "output_dir": str(output_dir)},
+            )
+            manifest.add_artifact(artifact)
+            assemblies[sample_id] = str(contigs)
+        if not assemblies:
+            raise RuntimeError("No assemblies produced; install metaSPAdes or MEGAHIT and provide valid FASTQ files.")
+        manifest.final_state["assemblies"] = assemblies
+        return manifest
+
+    @staticmethod
+    def _run_real_assembler(sample_id: str, paths: list[Path], workdir: Path) -> tuple[Path, str, Path]:
+        failures: list[str] = []
+        specs = (("metaspades.py", "metaspades", "contigs.fasta"), ("megahit", "megahit", "final.contigs.fa"))
+        for binary, label, contig_name in specs:
+            if shutil.which(binary) is None:
+                failures.append(f"{binary}: not installed")
+                continue
+            output_dir = workdir / f"{sample_id}_{label}"
+            if binary == "metaspades.py":
+                cmd = [binary, "-1", str(paths[0]), "-2", str(paths[1]), "-o", str(output_dir)] if len(paths) >= 2 else [binary, "-s", str(paths[0]), "-o", str(output_dir)]
+            else:
+                cmd = [binary, "-1", str(paths[0]), "-2", str(paths[1]), "-o", str(output_dir), "-t", "4"] if len(paths) >= 2 else [binary, "-r", str(paths[0]), "-o", str(output_dir), "-t", "4"]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=3600)
+                contigs = output_dir / contig_name
+                if contigs.is_file() and contigs.stat().st_size > 0:
+                    return output_dir, label, contigs
+                failures.append(f"{binary}: completed without {contig_name}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                failures.append(f"{binary}: {exc}")
+        raise RuntimeError(
+            "No real assembler succeeded. Install metaSPAdes (`conda install -c bioconda spades`) "
+            "or MEGAHIT (`conda install -c bioconda megahit`). Details: " + "; ".join(failures)
+        )
 
     def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
         new_assemblies: dict[str, AssemblyResult] = {}
@@ -186,9 +252,7 @@ class AssemblyAgent(Agent):
         contigs_path: Path | None,
         ctx: AgentContext,
     ):
-        """Run binning + MAG QC. v0.1 falls through to a "single MAG = entire
-        assembly" placeholder when binners are unavailable, so BGC discovery
-        is still exercised end-to-end."""
+        """Run binning + MAG QC only when the required real tools are available."""
         artifacts = []
         rationales = []
 
@@ -217,13 +281,9 @@ class AssemblyAgent(Agent):
             rationales.append(
                 ctx.make_rationale(
                     self.name,
-                    f"Binning deferred for {sample.sample_id}: {exc}. "
-                    "Treating assembly as a single placeholder MAG for downstream stages.",
+                    f"Binning unavailable for {sample.sample_id}: {exc}.",
                 )
             )
-
-        if not bin_paths and contigs_path is not None and Path(contigs_path).is_file():
-            bin_paths = [Path(contigs_path)]
 
         if not bin_paths:
             return None, artifacts, rationales, None

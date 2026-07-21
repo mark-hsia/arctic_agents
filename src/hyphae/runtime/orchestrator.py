@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from hyphae.manifest import Manifest
+from hyphae.agents.assembly import AssemblyAgent
 from hyphae.agents.taxonomy import TaxonomyAgent
 from hyphae.agents.bgc_discovery import BGCDiscoveryAgent
 from hyphae.agents.structure import StructureInferenceAgent
@@ -38,17 +39,28 @@ class FullOrchestrator:
         output_dir: Path = Path("report"),
         use_real_tools: bool = False,
     ) -> Manifest:
-        """Execute the full pipeline."""
-        print("Starting antifungal discovery pipeline...")
+        """Execute the real-only pipeline or fail with an actionable error."""
+        if not use_real_tools:
+            raise ValueError(
+                "Real pipeline requires use_real_tools=True; synthetic and heuristic execution paths are disabled."
+            )
+        print("REAL PIPELINE: FASTQ → Assembly → antiSMASH → Structures → Docking")
 
-        print("Stage 1: Taxonomy and BGC Discovery...")
+        print("Stage 1: Assembly and real BGC discovery via antiSMASH...")
+        asm = AssemblyAgent()
+        manifest = asm.assemble(manifest, output_dir / "assembly")
         tax = TaxonomyAgent()
         manifest = tax.analyze(manifest, target_pathogen)
         
         bgc = BGCDiscoveryAgent()
         manifest = bgc.discover(manifest)
 
-        print("Stage 2: Structure Inference and Docking...")
+        print(f"Found {len(manifest.final_state.get('bgcs', []))} real BGCs")
+        if not manifest.final_state.get("bgcs"):
+            raise RuntimeError(
+                "antiSMASH returned no BGCs. Verify contigs, antiSMASH API availability, and fungal input quality."
+            )
+        print("Stage 2: Structure and Docking...")
         struct = StructureInferenceAgent()
         manifest = struct.infer(manifest, use_antismash=use_real_tools)
         

@@ -38,12 +38,7 @@ class FastqcTool(Tool):
         out_dir.mkdir(parents=True, exist_ok=True)
 
         if not input_paths:
-            return ToolRunResult(
-                tool_id="reads.qc",
-                output_paths=[],
-                metrics={"files_processed": 0},
-                tool_version=self.version,
-            )
+            raise ValueError("FastQC requires at least one input FASTQ path")
 
         # Run fastqc with --quiet (non-interactive) and --noextract
         cmd = ["fastqc", "--quiet", "--noextract", "-o", str(out_dir), *input_paths]
@@ -56,14 +51,16 @@ class FastqcTool(Tool):
                 stderr=subprocess.PIPE,
                 timeout=600,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            # If real fastqc fails, create stubs
-            print(f"⚠️  FastQC failed: {e}. Creating stubs.")
-            for p in input_paths:
-                (out_dir / f"{Path(p).stem}_fastqc.zip").write_text("stub")
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                "FastQC failed. Install it with `conda install -c bioconda fastqc` "
+                f"and verify the FASTQ inputs. Cause: {exc}"
+            ) from exc
 
         # Return results
         reports = sorted(str(p) for p in out_dir.glob("*_fastqc.zip"))
+        if not reports:
+            raise RuntimeError("FastQC completed without producing a report archive")
         return ToolRunResult(
             tool_id="reads.qc",
             output_paths=[Path(p) for p in reports],

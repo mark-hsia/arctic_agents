@@ -6,9 +6,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..manifest import Manifest, StepResult, Artifact, Rationale, BudgetEntry
-from ..tools.registry import ToolRegistry
-from .deterministic_planner import ExecutionPlan
+from hyphae.manifest import Manifest, StepResult, Artifact, Rationale, BudgetEntry
+from hyphae.tools.registry import ToolRegistry
+from hyphae.runtime.deterministic_planner import ExecutionPlan
 
 logger = logging.getLogger(__name__)
 
@@ -44,32 +44,35 @@ class DeterministicExecutor:
             )
 
             try:
-                # Get tool from registry
                 tool = self._get_tool(registry, plan.tool_id)
 
-                # Resolve parent artifacts
                 parent_artifacts = []
                 if plan.input_source:
                     for artifact in manifest.artifacts:
                         if artifact.producer_agent == plan.input_source:
                             parent_artifacts.append(artifact)
 
-                # Run tool
                 result = tool.run(
                     input_paths=[str(a.path) for a in parent_artifacts],
                     output_dir=str(workdir / plan.step_name),
                 )
 
-                # Record outputs as artifacts
                 for output_path in result.output_paths:
                     artifact = Artifact(
-                        artifact_id=f"art_{step_result.step_name}_{len(manifest.artifacts)}",
+                        artifact_id=f"art_{plan.step_name}_{len(manifest.artifacts)}",
                         path=str(output_path),
                         producer_agent=plan.step_name,
                         mime_type="application/octet-stream",
                     )
                     manifest.add_artifact(artifact)
-                    step_result.output_paths.append(artifact.artifact_id)
+                    step_result.output_paths.append(output_path)
+
+                # POPULATE final_state BASED ON STEP NAME
+                if plan.step_name == "assembly":
+                    manifest.final_state.setdefault("assemblies", {})[f"sample_{len(manifest.final_state.get('assemblies', {}))}"] = str(output_path)
+
+                elif plan.step_name == "qc":
+                    manifest.final_state.setdefault("qc_reports", []).append(str(output_path))
 
                 step_result.success = True
                 rationale_claim = f"Executed {plan.tool_id} successfully, produced {len(result.output_paths)} outputs"
@@ -80,21 +83,19 @@ class DeterministicExecutor:
                 rationale_claim = f"Tool {plan.tool_id} failed: {e}. Continuing."
                 logger.warning(f"Tool {plan.tool_id} failed: {e}")
 
-            # Record step
             step_result.duration_seconds = time.time() - step_start
             manifest.add_step(step_result)
 
-            # Record rationale
             rationale = Rationale(
                 rationale_id=f"rat_{manifest.run_id}_{len(manifest.rationales)}",
                 producer_agent="executor",
                 claim=rationale_claim,
-                evidence_artifact_ids=step_result.output_paths,
+                evidence_artifact_ids=[a.artifact_id for a in manifest.artifacts if a.producer_agent == plan.step_name],
                 accepted=True,
+                critic_comments=[],
             )
             manifest.add_rationale(rationale)
 
-            # Track budget
             budget_entry = BudgetEntry(
                 agent=plan.step_name,
                 tokens=0,

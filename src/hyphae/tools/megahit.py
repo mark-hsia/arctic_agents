@@ -7,7 +7,7 @@ from .base import Tool, ToolRunResult
 
 
 class MegahitTool(Tool):
-    """Megahit wrapper - always available (creates stubs if binary missing)."""
+    """MEGAHIT wrapper that returns only real assembly output."""
 
     def __init__(self) -> None:
         self.tool_id = "assembly.megahit"
@@ -18,52 +18,43 @@ class MegahitTool(Tool):
         return self._version
 
     def is_available(self) -> bool:
-        # Always return True - we generate stubs if binary is missing
-        return True
+        try:
+            return subprocess.run(["megahit", "--version"], capture_output=True, timeout=5).returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
     def run(self, **kwargs: Any) -> ToolRunResult:
         input_paths = kwargs.get("input_paths", [])
         output_dir = kwargs.get("output_dir", "megahit_out")
+        threads = kwargs.get("threads", 4)
 
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
+        if not input_paths:
+            raise ValueError("MEGAHIT requires at least one FASTQ input path")
 
-        # Try to run real megahit if available
-        if input_paths:
-            if len(input_paths) >= 2:
-                cmd = ["megahit", "-1", input_paths[0], "-2", input_paths[1], "-o", str(out)]
-            else:
-                cmd = ["megahit", "-r", input_paths[0], "-o", str(out)]
-
-            try:
-                result = subprocess.run(
-                    ["megahit", "--version"],
-                    capture_output=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    # Binary exists - try to run it
-                    subprocess.run(
-                        cmd,
-                        check=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        timeout=3600,
-                    )
-                else:
-                    raise FileNotFoundError("megahit binary not functional")
-            except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                # Binary missing or failed - create stub
-                pass
-
-        # Always create/ensure stub contig file exists
         contig_path = out / "final.contigs.fa"
-        if not contig_path.exists():
-            contig_path.write_text(">contig_0\nATCGATCGATCGATCG\n>contig_1\nGATACGATACGATAC\n")
+        cmd = (
+            ["megahit", "-1", input_paths[0], "-2", input_paths[1], "-o", str(out), "-t", str(threads)]
+            if len(input_paths) >= 2
+            else ["megahit", "-r", input_paths[0], "-o", str(out), "-t", str(threads)]
+        )
+        try:
+            version = subprocess.run(["megahit", "--version"], capture_output=True, timeout=5, check=False)
+            if version.returncode != 0:
+                raise FileNotFoundError("MEGAHIT binary not functional")
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3600)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                "MEGAHIT failed. Install it with `conda install -c bioconda megahit` "
+                f"and verify input FASTQs. Cause: {exc}"
+            ) from exc
+        if not contig_path.is_file() or contig_path.stat().st_size == 0:
+            raise RuntimeError("MEGAHIT completed without final.contigs.fa")
 
         return ToolRunResult(
-            tool_id="assembly.megahit",
+            tool_id=self.tool_id,
             output_paths=[contig_path],
-            metrics={"contigs": 2},
+            metrics={"source": "real"},
             tool_version=self.version,
         )

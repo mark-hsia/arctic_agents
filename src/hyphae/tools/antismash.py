@@ -75,7 +75,6 @@ class AntiSmashWebClient(Tool):
     def run(self, **kwargs: Any) -> ToolRunResult:  # pragma: no cover - network
         if not self.is_available():
             raise ToolUnavailable("Hosted antiSMASH endpoint not configured")
-        # Stub: real implementation will use httpx to submit and poll.
         raise ToolUnavailable(
             "Hosted antiSMASH client not yet implemented; use local antismash binary"
         )

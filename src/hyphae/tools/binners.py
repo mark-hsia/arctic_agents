@@ -46,8 +46,7 @@ class CONCOCT(Tool):
             raise ToolUnavailable("concoct not on PATH")
         # Real wiring (cut_up_fasta, concoct_coverage_table, concoct,
         # merge_cutup_clustering, extract_fasta_bins) is multi-step and
-        # implemented as a Snakemake rule in workflows/. This stub keeps the
-        # tool ID resolvable.
+        # CONCOCT is currently implemented only in the Snakemake workflow.
         outdir: Path = Path(kwargs["outdir"])
         outdir.mkdir(parents=True, exist_ok=True)
         raise ToolUnavailable(

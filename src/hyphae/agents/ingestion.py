@@ -2,7 +2,7 @@
 
 Fetches reads (SRA accession or local path) and runs basic QC. Decisions:
   * accept paired vs. single-end inputs;
-  * subsample for cost reasons (logged) — currently a no-op stub;
+  * subsample decisions are logged; no data are fabricated.
   * mark a sample failed when QC verdict is fail.
 
 Heavy work (fastp) is delegated to the workflow runner.

@@ -178,7 +178,7 @@ class TaxonomyAgent(Agent):
 
 
 def analyze_and_discover(manifest: Manifest, target_pathogen: str) -> Manifest:
-    """Run the deterministic taxonomy and synthetic-BGC decision layer."""
+    """Run taxonomy and real antiSMASH BGC discovery."""
     from .bgc_discovery import BGCDiscoveryAgent
 
     manifest = TaxonomyAgent().analyze(manifest, target_pathogen)

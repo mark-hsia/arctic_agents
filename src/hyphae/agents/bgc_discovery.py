@@ -8,8 +8,8 @@ add union/agreement scoring; the agent layout already supports it.
 from __future__ import annotations
 
 import json
-import hashlib
-import random
+import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +21,9 @@ from ..workflows.runner import StepSpec
 from .base import Agent, AgentContext
 
 if TYPE_CHECKING:
-    from ..runtime.deterministic_executor import Manifest
+    from ..manifest import Manifest
+
+logger = logging.getLogger(__name__)
 
 _CLASS_NORMALIZE = {
     "T1PKS": BGCClass.t1pks,
@@ -53,85 +55,139 @@ def normalize_class(raw: str | None) -> BGCClass:
 
 
 class BGCDiscoveryAgent(Agent):
+    """Discover real BGCs by submitting assembled contigs to antiSMASH."""
+
     name = "bgc_discovery"
     reads = ("mags", "taxonomy")
     writes = ("bgcs",)
     tools = ("bgc.antismash",)
 
-    def discover(self, manifest: Manifest) -> Manifest:
-        """Create deterministic synthetic BGC candidates for decision-layer use.
+    def __init__(self) -> None:
+        self.antismash_url = "https://antismash.secondarymetabolites.org/api/v1"
+        self.max_retries = 3
 
-        This provides useful downstream structure before antiSMASH/BiG-SLiCE is
-        available; the records explicitly identify the synthetic tool source.
-        """
+    def discover(self, manifest: Manifest | dict[str, Any]) -> Manifest | Any:
+        """Populate ``bgcs`` only from completed antiSMASH API results."""
+        if not hasattr(manifest, "final_state"):
+            manifest = self._dict_to_obj(manifest)
         assemblies = manifest.final_state.get("assemblies", {})
-        if not isinstance(assemblies, dict):
-            return manifest
-        bgcs = manifest.final_state.setdefault("bgcs", [])
-        if not isinstance(bgcs, list):
-            bgcs = []
-            manifest.final_state["bgcs"] = bgcs
-        seen_types = {
-            str(record.get("type", record.get("bgc_class", ""))).lower()
-            for record in bgcs
-            if isinstance(record, dict)
-        }
+        bgcs: list[dict[str, Any]] = []
+        for assembly_id, assembly_path in assemblies.items() if isinstance(assemblies, dict) else []:
+            try:
+                bgcs.extend(self._run_antismash(str(assembly_path), str(assembly_id)))
+            except Exception as exc:
+                logger.warning("antiSMASH failed for %s: %s", assembly_id, exc)
+        manifest.final_state["bgcs"] = bgcs
+        claim = f"Found {len(bgcs)} BGCs via antiSMASH API"
+        self._append_manifest_rationale(
+            manifest, claim, list(assemblies) if isinstance(assemblies, dict) else []
+        )
+        return manifest
 
-        for sample_id, reference in assemblies.items():
-            seed = int(hashlib.sha256(f"{sample_id}:{reference}".encode()).hexdigest()[:16], 16)
-            rng = random.Random(seed)
-            count = rng.randint(2, 4)
-            contig_ids = self._contig_ids(manifest, reference) or [f"contig_{sample_id}"]
-            novel_gcfs = 0
-            for index in range(count):
-                bgc_type = rng.choice(["nrps", "t1pks", "hybrid", "bacteriocin"])
-                is_known = bgc_type in seen_types
-                if not is_known:
-                    novel_gcfs += 1
-                seen_types.add(bgc_type)
+    def _run_antismash(self, contig_fasta: str, assembly_id: str) -> list[dict[str, Any]]:
+        path = Path(contig_fasta)
+        if not path.is_file():
+            raise FileNotFoundError(f"Contig file {contig_fasta} not found")
+        try:
+            import requests
+
+            response = requests.post(
+                f"{self.antismash_url}/submit",
+                files={"sequence": (path.name, path.read_text(), "text/plain")},
+                data={"email": "hyphae@example.com", "ncbi": "off"},
+                timeout=30,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"antiSMASH submit failed ({response.status_code}): {response.text[:500]}")
+            job_id = response.json().get("submission_id")
+            if not job_id:
+                raise RuntimeError("antiSMASH did not return a submission_id")
+            return self._poll_antismash(job_id, assembly_id)
+        except Exception as exc:
+            raise RuntimeError(f"antiSMASH API unavailable: {exc}") from exc
+
+    def _poll_antismash(self, job_id: str, assembly_id: str, max_wait_sec: int = 300) -> list[dict[str, Any]]:
+        try:
+            import requests
+        except ImportError as exc:
+            raise RuntimeError("requests is required for antiSMASH API access") from exc
+        started = time.monotonic()
+        while time.monotonic() - started < max_wait_sec:
+            try:
+                response = requests.get(f"{self.antismash_url}/results/{job_id}", timeout=10)
+                if response.status_code == 404:
+                    time.sleep(5)
+                    continue
+                if response.status_code != 200:
+                    time.sleep(5)
+                    continue
+                result = response.json()
+                if result.get("status") == "done":
+                    return self._parse_antismash_result(result, assembly_id)
+                if result.get("status") == "failed":
+                    raise RuntimeError(str(result.get("error", "antiSMASH job failed")))
+            except Exception as exc:
+                logger.debug("antiSMASH poll error for %s: %s", job_id, exc)
+            time.sleep(5)
+        raise RuntimeError(f"antiSMASH job {job_id} timed out")
+
+    @staticmethod
+    def _parse_antismash_result(result: dict[str, Any], assembly_id: str) -> list[dict[str, Any]]:
+        bgcs: list[dict[str, Any]] = []
+        for record_index, record in enumerate(result.get("records", [])):
+            for cluster_index, cluster in enumerate(record.get("clusters", [])):
+                products = cluster.get("product", [])
+                products = [products] if isinstance(products, str) else list(products or [])
+                domains = list(dict.fromkeys(
+                    str(motif.get("note", ""))
+                    for motif in cluster.get("cds_motifs", [])
+                    if isinstance(motif, dict) and motif.get("note")
+                ))
+                raw_confidence = cluster.get("detection_rule", {}).get("confidence", 0.7)
+                confidence = 0.9 if raw_confidence == "high" else 0.7 if isinstance(raw_confidence, str) else float(raw_confidence)
                 bgcs.append({
-                    "bgc_id": f"BGC_{short_hash(str(sample_id), str(index), bgc_type)}",
-                    "contig_id": rng.choice(contig_ids),
-                    "tool": "synthetic_antismash",
-                    "type": bgc_type,
-                    "domains": self._domains(bgc_type),
-                    "confidence": round(0.6 + rng.random() * 0.35, 3),
-                    "gcf_candidate": (
-                        f"GCF_known_{bgc_type}" if is_known else f"GCF_orphan_{bgc_type}"
-                    ),
+                    "bgc_id": f"{assembly_id}_cluster_{record_index}_{cluster_index}",
+                    "assembly_id": assembly_id,
+                    "type": products[0] if products else "unknown",
+                    "product_types": products,
+                    "domains": domains,
+                    "contig_id": record.get("id", f"contig_{record_index}"),
+                    "start": cluster.get("start"),
+                    "end": cluster.get("end"),
+                    "confidence": confidence,
+                    "tool": "antismash",
+                    "gcf_candidate": None,
+                    "source": "antismash_api",
                 })
-            claim = f"Found {count} BGCs for {sample_id}; {novel_gcfs} are novel GCFs (not in MIBiG)."
+        return bgcs
+
+    @staticmethod
+    def _dict_to_obj(data: dict[str, Any]) -> Any:
+        class Obj:
+            def __init__(self, values: dict[str, Any]) -> None:
+                self.__dict__.update(values)
+                self.final_state = getattr(self, "final_state", {})
+                self.rationales = getattr(self, "rationales", [])
+        return Obj(data)
+
+    @staticmethod
+    def _append_manifest_rationale(manifest: Any, claim: str, artifact_ids: list[str]) -> None:
+        try:
+            from ..manifest import Rationale as ManifestRationale
+
+            manifest.rationales.append(ManifestRationale(
+                rationale_id=f"rat_bgc_{len(manifest.rationales)}",
+                producer_agent="bgc_discovery",
+                claim=claim,
+                evidence_artifact_ids=artifact_ids,
+            ))
+        except ImportError:
             manifest.rationales.append(Rationale(
                 rationale_id=new_rationale_id("bgc_discovery", claim, deterministic=True),
                 producer_agent="bgc_discovery",
                 claim=claim,
+                evidence_artifact_ids=artifact_ids,
             ))
-        return manifest
-
-    @staticmethod
-    def _domains(bgc_type: str) -> list[str]:
-        domains = {
-            "nrps": ["A", "PCP", "C", "KS"],
-            "t1pks": ["KS", "AT", "ACP", "TE"],
-            "hybrid": ["A", "PCP", "C", "KS", "AT", "ACP", "TE"],
-            "bacteriocin": ["LanM", "LanT"],
-        }
-        return domains[bgc_type]
-
-    @staticmethod
-    def _contig_ids(manifest: Manifest, reference: Any) -> list[str]:
-        if hasattr(reference, "assembly_artifact_id"):
-            reference = reference.assembly_artifact_id
-        elif isinstance(reference, dict):
-            reference = reference.get("assembly_artifact_id") or reference.get("path")
-        artifacts = {artifact.artifact_id: artifact for artifact in manifest.artifacts}
-        if reference in artifacts:
-            reference = artifacts[reference].path
-        path = Path(str(reference)) if reference else None
-        if path is None or not path.is_file():
-            return []
-        with path.open(errors="replace") as handle:
-            return [line[1:].strip().split()[0] for line in handle if line.startswith(">")]
 
     def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
         new_bgcs: list[BGC] = []
