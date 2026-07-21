@@ -1,0 +1,90 @@
+{
+  "run_id": "agentic_test_001",
+  "intent": {
+    "ingestion": {
+      "tool_id": "ingestion",
+      "cost_usd": 0.0
+    },
+    "qc": {
+      "tool_id": "reads.qc",
+      "cost_usd": 0.0
+    },
+    "assembly": {
+      "tool_id": "assembly.megahit",
+      "cost_usd": 7.5
+    }
+  },
+  "steps": [
+    {
+      "step_name": "qc",
+      "tool_id": "reads.qc",
+      "output_paths": [],
+      "metrics": {},
+      "tool_version": "unknown",
+      "duration_seconds": 0.20075702667236328,
+      "status": "pending"
+    },
+    {
+      "step_name": "assembly",
+      "tool_id": "assembly.megahit",
+      "output_paths": [
+        "art_assembly_0"
+      ],
+      "metrics": {},
+      "tool_version": "unknown",
+      "duration_seconds": 4.792213439941406e-05,
+      "status": "pending"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "art_assembly_0",
+      "path": "demo_agentic_run/assembly/final.contigs.fa",
+      "producer_agent": "assembly",
+      "mime_type": "application/octet-stream",
+      "sha256": "",
+      "bytes": 0,
+      "metadata": {},
+      "created_at": ""
+    }
+  ],
+  "rationales": [
+    {
+      "rationale_id": "rat_agentic_test_001_0",
+      "producer_agent": "executor",
+      "claim": "Executed reads.qc successfully, produced 0 outputs",
+      "evidence_artifact_ids": [],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "created_at": ""
+    },
+    {
+      "rationale_id": "rat_agentic_test_001_1",
+      "producer_agent": "executor",
+      "claim": "Executed assembly.megahit successfully, produced 1 outputs",
+      "evidence_artifact_ids": [
+        "art_assembly_0"
+      ],
+      "evidence_rationale_ids": [],
+      "accepted": true,
+      "created_at": ""
+    }
+  ],
+  "budget_entries": [
+    {
+      "agent": "qc",
+      "tokens": 0,
+      "dollars": 0.0,
+      "wall_clock_seconds": 0.20075702667236328,
+      "created_at": ""
+    },
+    {
+      "agent": "assembly",
+      "tokens": 0,
+      "dollars": 7.5,
+      "wall_clock_seconds": 4.792213439941406e-05,
+      "created_at": ""
+    }
+  ],
+  "final_state": {}
+}
