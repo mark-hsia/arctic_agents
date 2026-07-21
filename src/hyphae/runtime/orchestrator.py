@@ -14,7 +14,7 @@ from hyphae.agents.reporter import ReporterAgent
 class FullOrchestrator:
     """Orchestrates the complete antifungal discovery pipeline."""
 
-    def __init__(self, knowledge_cache: dict | None = None, target_pack: dict | None = None):
+    def __init__(self, knowledge_cache: dict = None, target_pack: dict = None):
         self.knowledge_cache = knowledge_cache or {}
         self.target_pack = target_pack or self._default_targets()
 
@@ -22,8 +22,8 @@ class FullOrchestrator:
         """Default antifungal target pack."""
         return {
             "candida_albicans": {
-                "CYP51": {"description": "Lanosterol 14α-demethylase (azole target)"},
-                "FKS": {"description": "β-1,3-glucan synthase (echinocandin target)"},
+                "CYP51": {"description": "Lanosterol 14a-demethylase (azole target)"},
+                "FKS": {"description": "b-1,3-glucan synthase (echinocandin target)"},
                 "Hsp90": {"description": "Heat shock protein (exploratory)"},
             },
             "aspergillus_fumigatus": {
@@ -36,38 +36,35 @@ class FullOrchestrator:
         manifest: Manifest,
         target_pathogen: str,
         output_dir: Path = Path("report"),
+        use_real_tools: bool = False,
     ) -> Manifest:
         """Execute the full pipeline."""
-        print(f"🧬 Starting antifungal discovery pipeline...")
+        print("Starting antifungal discovery pipeline...")
 
-        # Stage 1: Taxonomy & BGC Discovery
-        print("📊 Stage 1: Taxonomy & BGC Discovery...")
+        print("Stage 1: Taxonomy and BGC Discovery...")
         tax = TaxonomyAgent()
         manifest = tax.analyze(manifest, target_pathogen)
         
         bgc = BGCDiscoveryAgent()
         manifest = bgc.discover(manifest)
 
-        # Stage 2: Structure & Docking
-        print("🧪 Stage 2: Structure Inference & Docking...")
+        print("Stage 2: Structure Inference and Docking...")
         struct = StructureInferenceAgent()
-        manifest = struct.infer(manifest)
+        manifest = struct.infer(manifest, use_antismash=use_real_tools)
         
         dock = TargetDockingAgent()
-        manifest = dock.dock(manifest, self.target_pack)
+        manifest = dock.dock(manifest, self.target_pack, use_vina=use_real_tools)
 
-        # Stage 3: Validation & Literature
-        print("✅ Stage 3: Critic Review & Literature Search...")
+        print("Stage 3: Critic Review and Literature Search...")
         critic = CriticAgent()
         manifest = critic.review(manifest)
         
         lit = LiteratureAgent()
         manifest = lit.cite(manifest, self.knowledge_cache)
 
-        # Stage 4: Reporting
-        print("📝 Stage 4: Report Generation...")
+        print("Stage 4: Report Generation...")
         reporter = ReporterAgent()
         reporter.generate_report(manifest, output_dir)
 
-        print(f"✅ Pipeline complete. Report: {output_dir}")
+        print("Pipeline complete. Report: " + str(output_dir))
         return manifest

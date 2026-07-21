@@ -7,6 +7,7 @@ from pathlib import Path
 from statistics import mean, median
 from typing import TYPE_CHECKING, Any
 
+from ..knowledge import KnowledgeBase
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
 
@@ -62,12 +63,19 @@ class GenomeComparator:
 class NoveltyScorer:
     """Score novelty from a taxonomic assignment and unusual assembly statistics."""
 
+    def __init__(self, knowledge_base: KnowledgeBase | None = None) -> None:
+        self.kb = knowledge_base or KnowledgeBase()
+
     def score(
         self,
         assembly_stats: dict[str, Any],
         taxonomy_result: str | Any,
-        target_species: str,
+        target_species: str | None = None,
     ) -> dict[str, Any]:
+        if target_species is None and isinstance(assembly_stats, dict) and (
+            "domains" in assembly_stats or "type" in assembly_stats
+        ):
+            return self._score_bgc(assembly_stats, taxonomy_result)
         taxonomy_text = self._taxonomy_text(taxonomy_result)
         assigned_taxid = self._assigned_taxid(taxonomy_text)
         if assigned_taxid == "unclassified":
@@ -75,6 +83,7 @@ class NoveltyScorer:
                 "novelty_score": 0.9,
                 "rationale_text": "Taxonomy assignment is unclassified; treating the sample as highly novel.",
             }
+        target_species = target_species or "unknown"
         normalized_target = target_species.replace("_", " ").lower()
         if (
             normalized_target in taxonomy_text.lower()
@@ -103,6 +112,23 @@ class NoveltyScorer:
             "novelty_score": novelty,
             "rationale_text": f"Taxonomy differs from {target_species}; {explanation}.",
         }
+
+    def _score_bgc(self, bgc: dict[str, Any], taxonomy: Any) -> dict[str, Any]:
+        """Score a BGC against cached MIBiG product classes."""
+        taxonomy_text = self._taxonomy_text(taxonomy)
+        base_novelty = float(bgc.get("novelty_score", 0.5))
+        if "unclassified" in taxonomy_text.lower():
+            base_novelty = max(base_novelty, 0.7)
+        similar = self.kb.find_similar_bgc(
+            list(bgc.get("domains", [])), str(bgc.get("type", "unknown"))
+        )
+        if similar:
+            base_novelty *= 0.7
+            suffix = f"; similar to MIBiG BGCs: {[match[0] for match in similar[:2]]}"
+        else:
+            suffix = "; not found in MIBiG"
+        base_novelty = round(max(0.0, min(1.0, base_novelty)), 6)
+        return {"score": base_novelty, "rationale": f"Novelty={base_novelty:.2f}{suffix}"}
 
     @staticmethod
     def _taxonomy_text(taxonomy_result: str | Any) -> str:

@@ -1,0 +1,18 @@
+{
+  "BGC0000001": {
+    "product": [
+      "nrps"
+    ],
+    "organism": "Aspergillus fumigatus",
+    "domains": [],
+    "references": []
+  },
+  "BGC0000002": {
+    "product": [
+      "t1pks"
+    ],
+    "organism": "Streptomyces coelicolor",
+    "domains": [],
+    "references": []
+  }
+}

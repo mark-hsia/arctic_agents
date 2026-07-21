@@ -55,6 +55,7 @@ class Rationale:
     evidence_artifact_ids: List[str] = field(default_factory=list)
     evidence_rationale_ids: List[str] = field(default_factory=list)
     accepted: bool = True
+    critic_comments: List[str] = field(default_factory=list)
     created_at: str = ""
 
     def to_dict(self) -> dict:

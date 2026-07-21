@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ..knowledge import KnowledgeBase
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
 
@@ -11,19 +12,50 @@ if TYPE_CHECKING:
 class LiteratureAgent:
     """Cite only supplied knowledge-cache records; never performs web retrieval."""
 
-    def cite(self, manifest: Manifest, knowledge_cache: dict[str, Any]) -> Manifest:
+    def cite(
+        self,
+        manifest: Manifest,
+        knowledge_cache: dict[str, Any] | KnowledgeBase | None = None,
+        knowledge_base: KnowledgeBase | None = None,
+    ) -> Manifest:
+        """Attach cache citations and flag exact ChEMBL structure matches."""
+        if isinstance(knowledge_cache, KnowledgeBase):
+            knowledge_base = knowledge_cache
+            knowledge_cache = None
+        kb = knowledge_base or KnowledgeBase()
+        cache = knowledge_cache or {}
         literature = manifest.final_state.setdefault("literature", [])
         if not isinstance(literature, list):
             literature = []
             manifest.final_state["literature"] = literature
         smiles_by_rationale = self._smiles_by_rationale(manifest)
+        for structure in manifest.final_state.get("structures", []):
+            if hasattr(structure, "model_dump"):
+                structure = structure.model_dump()
+            if not isinstance(structure, dict):
+                continue
+            smiles = structure.get("smiles")
+            chembl_hit = kb.lookup_smiles(str(smiles)) if smiles else None
+            if chembl_hit:
+                literature.append({
+                    "claim_id": structure.get("rationale_id", structure.get("structure_id")),
+                    "citations": [{
+                        "source": "ChEMBL",
+                        "claim": f"Compound already characterized: {chembl_hit.get('target', 'unknown target')}",
+                        "relevance": 0.9,
+                    }],
+                    "evidence_artifact_ids": [],
+                })
+                structure["novelty_flag"] = "prior_art"
         for rationale in manifest.rationales:
             claim = rationale.claim
-            citations = self._matches(claim, knowledge_cache)
+            citations = self._matches(claim, cache)
             comments: list[str] = []
             if "novel" in claim.lower():
                 matching_smiles = smiles_by_rationale.get(rationale.rationale_id, [])
-                if self._has_prior_art(matching_smiles, knowledge_cache):
+                if self._has_prior_art(matching_smiles, cache) or any(
+                    kb.lookup_smiles(smiles) for smiles in matching_smiles
+                ):
                     comments.append("This 'novel' structure has prior art")
                     rationale.accepted = False
                 elif not citations:

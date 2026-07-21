@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..ids import new_rationale_id
@@ -16,13 +19,24 @@ if TYPE_CHECKING:
 class TargetDockingAgent:
     """Rank inferred structures against all declared targets without docking software."""
 
-    def dock(self, manifest: Manifest, target_pack: dict[str, Any]) -> Manifest:
+    def dock(
+        self,
+        manifest: Manifest,
+        target_pack: dict[str, Any],
+        use_vina: bool = False,
+        vina_bin: str = "vina",
+    ) -> Manifest:
+        """Dock structures, preferring Vina only when explicitly requested.
+
+        Vina/RDKit failures are isolated per structure and target, so the
+        deterministic ranking remains available in minimal installations.
+        """
         structures = manifest.final_state.get("structures", [])
         docking = manifest.final_state.setdefault("docking", [])
         if not isinstance(docking, list):
             docking = []
             manifest.final_state["docking"] = docking
-        targets = self._targets(target_pack)
+        targets = self._flatten_target_pack(target_pack)
         accepted: list[dict[str, Any]] = []
         rejected = 0
         for structure in structures:
@@ -30,11 +44,15 @@ class TargetDockingAgent:
             if self._logp(record["smiles"]) > 5 or self._molecular_weight(record["smiles"]) > 600:
                 rejected += 1
                 continue
-            for target in targets:
+            for target, target_data in targets.items():
+                score, source = self._score_structure(
+                    record["smiles"], target_data, use_vina, vina_bin
+                )
                 accepted.append({
                     "compound_id": record["id"],
                     "target": target,
-                    "vina_score": self._vina_score(record["smiles"]),
+                    "vina_score": score,
+                    "source": source,
                 })
         accepted.sort(key=lambda result: (result["vina_score"], result["compound_id"], result["target"]))
         for rank, result in enumerate(accepted, start=1):
@@ -57,8 +75,63 @@ class TargetDockingAgent:
         return manifest
 
     @staticmethod
-    def _targets(target_pack: dict[str, Any]) -> list[str]:
-        return [target for pack in target_pack.values() if isinstance(pack, dict) for target in pack]
+    def _flatten_target_pack(target_pack: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Flatten ``{pathogen: {target: metadata}}`` target packs."""
+        return {
+            f"{pathogen}/{target}": data if isinstance(data, dict) else {}
+            for pathogen, targets in target_pack.items()
+            if isinstance(targets, dict)
+            for target, data in targets.items()
+        }
+
+    def _score_structure(
+        self, smiles: str, target_data: dict[str, Any], use_vina: bool, vina_bin: str
+    ) -> tuple[float, str]:
+        if not use_vina:
+            return self._heuristic_vina_score(smiles), "heuristic"
+        receptor = Path(str(target_data.get("receptor_path", "")))
+        if not receptor.is_file():
+            return self._heuristic_vina_score(smiles), "heuristic"
+        ligand_path = self._smiles_to_pdb(smiles)
+        if ligand_path is None:
+            return self._heuristic_vina_score(smiles), "heuristic"
+        try:
+            result = subprocess.run(
+                [vina_bin, "--ligand", str(ligand_path), "--receptor", str(receptor), "--exhaustiveness", "8"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            score = self._parse_vina_affinity(result.stdout) if result.returncode == 0 else None
+            return (score, "vina") if score is not None else (self._heuristic_vina_score(smiles), "heuristic")
+        except Exception:
+            return self._heuristic_vina_score(smiles), "heuristic"
+        finally:
+            ligand_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _smiles_to_pdb(smiles: str) -> Path | None:
+        try:
+            from rdkit import Chem
+            from rdkit.Chem import AllChem
+
+            molecule = Chem.MolFromSmiles(smiles)
+            if molecule is None:
+                return None
+            molecule = Chem.AddHs(molecule)
+            AllChem.EmbedMolecule(molecule, randomSeed=42)
+            with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False) as handle:
+                path = Path(handle.name)
+            Chem.MolToPDBFile(molecule, str(path))
+            return path
+        except Exception:
+            return None
+
+    @staticmethod
+    def _parse_vina_affinity(stdout: str) -> float | None:
+        match = re.search(r"(?:Affinity:|^\s*1\s+)(-?\d+(?:\.\d+)?)", stdout, re.MULTILINE)
+        return float(match.group(1)) if match else None
 
     @staticmethod
     def _record(structure: Any) -> dict[str, str]:
@@ -77,6 +150,11 @@ class TargetDockingAgent:
         halogen_bonus = 0.3 if ("halogen" in smiles.lower() or re.search(r"Cl|Br|F|I", smiles)) else 0.0
         jitter = (int(hashlib.sha256(smiles.encode()).hexdigest()[:4], 16) % 41 - 20) / 100
         return round(-7.5 + aromatic_bonus + halogen_bonus + jitter, 3)
+
+    @staticmethod
+    def _heuristic_vina_score(smiles: str) -> float:
+        """A simple fallback score for environments without Vina/RDKit."""
+        return round(-7.5 + (0.3 if "O" in smiles else 0.0) + (0.2 if "N" in smiles else 0.0), 3)
 
     @staticmethod
     def _molecular_weight(smiles: str) -> float:

@@ -16,7 +16,12 @@ if TYPE_CHECKING:
 class StructureInferenceAgent:
     """Generate transparent scaffold hypotheses without invoking chemistry tools."""
 
-    def infer(self, manifest: Manifest) -> Manifest:
+    def infer(self, manifest: Manifest, use_antismash: bool = False) -> Manifest:
+        """Infer scaffolds, using antiSMASH annotations when explicitly enabled.
+
+        Network/API failures are deliberately contained: every BGC still gets
+        the same deterministic domain-based fallback used in offline mode.
+        """
         bgcs = manifest.final_state.get("bgcs", [])
         structures = manifest.final_state.setdefault("structures", [])
         if not isinstance(structures, list):
@@ -25,13 +30,12 @@ class StructureInferenceAgent:
 
         for bgc in sorted(bgcs, key=self._novelty, reverse=True):
             record = self._record(bgc)
-            domains = record["domains"]
+            domains, confidence, source = self._domains_and_confidence(record, use_antismash)
             scaffold_type = self._scaffold_type(record["type"], domains)
             if scaffold_type == "ribosomal":
                 claim = f"Deferred {record['id']}: ribosomal BGC scaffold inference needs sequence context."
                 manifest.rationales.append(self._rationale(claim))
                 continue
-            confidence = self._confidence(scaffold_type, len(domains))
             candidates = self._candidate_smiles(record["id"], scaffold_type)
             candidate_ids: list[str] = []
             for index, smiles in enumerate(candidates, start=1):
@@ -43,6 +47,7 @@ class StructureInferenceAgent:
                     "smiles": smiles,
                     "confidence": round(max(0.0, min(1.0, confidence - (index - 1) * 0.04)), 3),
                     "scaffold_type": scaffold_type,
+                    "source": source,
                 })
             claim = (
                 f"Inferred 3 {scaffold_type} scaffold candidates from {len(domains)} domains; "
@@ -66,7 +71,57 @@ class StructureInferenceAgent:
             "type": str(bgc.get("type", bgc.get("bgc_class", bgc.get("product", "other")))).lower(),
             "domains": [str(domain).upper() for domain in bgc.get("domains", [])],
             "novelty_score": float(bgc.get("novelty_score", 0.0)),
+            "contig_path": bgc.get("contig_path"),
         }
+
+    def _domains_and_confidence(
+        self, bgc: dict[str, Any], use_antismash: bool
+    ) -> tuple[list[str], float, str]:
+        if use_antismash and bgc.get("contig_path"):
+            try:
+                import requests
+
+                fasta_content = Path(str(bgc["contig_path"])).read_text()
+                response = requests.post(
+                    "https://antismash.secondarymetabolites.org/api/v1/submit",
+                    files={"sequence": ("contig.fasta", fasta_content, "text/plain")},
+                    timeout=30,
+                )
+                if response.status_code == 200:
+                    job_id = response.json()["submission_id"]
+                    result = requests.get(
+                        f"https://antismash.secondarymetabolites.org/api/v1/results/{job_id}",
+                        timeout=60,
+                    )
+                    if result.status_code == 200:
+                        domains = self._extract_domains_from_antismash(result.json())
+                        return domains, 0.85, "antismash"
+            except Exception:
+                pass
+        domains, confidence = self._heuristic_domains(bgc)
+        return domains, confidence, "heuristic"
+
+    @staticmethod
+    def _extract_domains_from_antismash(antismash_json: dict[str, Any]) -> list[str]:
+        """Extract CDS-motif names from the compact antiSMASH API response."""
+        domains = [
+            str(motif.get("note", "unknown"))
+            for cluster in antismash_json.get("clusters", [])
+            for motif in cluster.get("cds_motifs", [])
+            if isinstance(motif, dict)
+        ]
+        return domains or ["unknown"]
+
+    @staticmethod
+    def _heuristic_domains(bgc: dict[str, Any]) -> tuple[list[str], float]:
+        domains = list(bgc.get("domains") or ["unknown"])
+        scaffold = StructureInferenceAgent._scaffold_type(str(bgc.get("type", "other")), domains)
+        return domains, StructureInferenceAgent._confidence(scaffold, len(domains))
+
+    def _generate_smiles_candidates(self, domains: list[str], bgc_id: str = "domains") -> list[str]:
+        """Compatibility helper for callers that start from domain annotations."""
+        scaffold = self._scaffold_type("other", [str(domain).upper() for domain in domains])
+        return self._candidate_smiles(bgc_id, scaffold)
 
     @staticmethod
     def _novelty(bgc: Any) -> float:
