@@ -3,9 +3,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import json
-from datetime import datetime
 
 
 @dataclass
@@ -17,7 +16,7 @@ class StepResult:
     metrics: Dict[str, Any] = field(default_factory=dict)
     tool_version: str = "unknown"
     duration_seconds: float = 0.0
-    status: str = "pending"  # pending, success, failed
+    status: str = "pending"
 
     def to_dict(self) -> dict:
         return {
@@ -88,18 +87,15 @@ class Manifest:
 
     @classmethod
     def empty(cls, run_id: str = "run_new") -> Manifest:
-        """Create empty manifest."""
         return cls(run_id=run_id)
 
     @classmethod
     def from_json(cls, path: Path) -> Manifest:
-        """Load manifest from JSON file."""
         data = json.loads(path.read_text())
         return cls.from_dict(data)
 
     @classmethod
     def from_dict(cls, data: dict) -> Manifest:
-        """Create manifest from dict."""
         steps = [StepResult(**s) for s in data.get("steps", [])]
         artifacts = [Artifact(**a) for a in data.get("artifacts", [])]
         rationales = [Rationale(**r) for r in data.get("rationales", [])]
@@ -116,7 +112,6 @@ class Manifest:
         )
 
     def write_json(self, path: Path) -> None:
-        """Write manifest to JSON file."""
         payload = {
             "run_id": self.run_id,
             "intent": self.intent,
@@ -130,17 +125,13 @@ class Manifest:
         path.write_text(json.dumps(payload, indent=2))
 
     def add_step(self, step: StepResult) -> None:
-        """Add a step result."""
         self.steps.append(step)
 
     def add_artifact(self, artifact: Artifact) -> None:
-        """Add an artifact."""
         self.artifacts.append(artifact)
 
     def add_rationale(self, rationale: Rationale) -> None:
-        """Add a rationale."""
         self.rationales.append(rationale)
 
     def add_budget_entry(self, entry: BudgetEntry) -> None:
-        """Track budget usage."""
         self.budget_entries.append(entry)
