@@ -1,0 +1,37 @@
+Command line: /opt/miniconda3/bin/metaspades.py	-1	/Users/markhsia/arctic_agents/.hyphae_cache/fastq/SRR8813623_1.fastq	-2	/Users/markhsia/arctic_agents/.hyphae_cache/fastq/SRR8813623_2.fastq	-o	/Users/markhsia/arctic_agents/report_final/assembly/SRR8813623_metaspades	
+
+System information:
+  SPAdes version: 4.2.0
+  Python version: 3.13.9
+  OS: macOS-14.6-arm64-arm-64bit-Mach-O
+
+Output dir: /Users/markhsia/arctic_agents/report_final/assembly/SRR8813623_metaspades
+Mode: read error correction and assembling
+Debug mode is turned OFF
+
+Dataset parameters:
+  Metagenomic mode
+  Reads:
+    Library number: 1, library type: paired-end
+      orientation: fr
+      left reads: ['/Users/markhsia/arctic_agents/.hyphae_cache/fastq/SRR8813623_1.fastq']
+      right reads: ['/Users/markhsia/arctic_agents/.hyphae_cache/fastq/SRR8813623_2.fastq']
+      interlaced reads: not specified
+      single reads: not specified
+      merged reads: not specified
+Read error correction parameters:
+  Iterations: 1
+  PHRED offset will be auto-detected
+  Corrected reads will be compressed
+Assembly parameters:
+  k: [21, 33, 55]
+  Repeat resolution is enabled
+  Mismatch careful mode is turned OFF
+  MismatchCorrector will be SKIPPED
+  Coverage cutoff is turned OFF
+  Assembly graph output will use GFA v1.2 format
+Other parameters:
+  Dir for temp files: /Users/markhsia/arctic_agents/report_final/assembly/SRR8813623_metaspades/tmp
+  Threads: 16
+  Memory limit (in Gb): 250
+

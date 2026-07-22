@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -62,74 +64,250 @@ class BGCDiscoveryAgent(Agent):
     writes = ("bgcs",)
     tools = ("bgc.antismash",)
 
-    def __init__(self) -> None:
+    def __init__(self, max_wait_seconds: int = 7200, poll_interval_seconds: int = 30) -> None:
+        """Configure queue waiting for asynchronous antiSMASH submissions."""
         self.antismash_url = "https://antismash.secondarymetabolites.org/api/v1"
         self.max_retries = 3
+        self.max_wait_seconds = max_wait_seconds
+        self.poll_interval_seconds = poll_interval_seconds
 
-    def discover(self, manifest: Manifest | dict[str, Any]) -> Manifest | Any:
-        """Populate ``bgcs`` only from completed antiSMASH API results."""
+    def discover(
+        self, manifest: Manifest | dict[str, Any], max_wait_seconds: int | None = None
+    ) -> Manifest | Any:
+        """Discover BGCs using the local/API/HMMER production cascade."""
         if not hasattr(manifest, "final_state"):
             manifest = self._dict_to_obj(manifest)
         assemblies = manifest.final_state.get("assemblies", {})
         bgcs: list[dict[str, Any]] = []
         for assembly_id, assembly_path in assemblies.items() if isinstance(assemblies, dict) else []:
-            try:
-                bgcs.extend(self._run_antismash(str(assembly_path), str(assembly_id)))
-            except Exception as exc:
-                logger.warning("antiSMASH failed for %s: %s", assembly_id, exc)
+            logger.info("Detecting biosynthetic domains in %s", assembly_id)
+            bgcs.extend(self._run_antismash(str(assembly_path), str(assembly_id)))
+        if not bgcs:
+            raise RuntimeError(
+                "No biosynthetic domains were detected. Verify contigs or install antiSMASH, or install "
+                "Prodigal + HMMER and set HYPHAE_PFAM_HMM to a pressed Pfam-A HMM database."
+            )
         manifest.final_state["bgcs"] = bgcs
-        claim = f"Found {len(bgcs)} BGCs via antiSMASH API"
+        claim = f"Detected {len(bgcs)} BGC candidates via antiSMASH/HMMER domain analysis"
         self._append_manifest_rationale(
             manifest, claim, list(assemblies) if isinstance(assemblies, dict) else []
         )
         return manifest
 
     def _run_antismash(self, contig_fasta: str, assembly_id: str) -> list[dict[str, Any]]:
+        """Try local antiSMASH, queued API, then local Prodigal/HMMER/Pfam."""
         path = Path(contig_fasta)
         if not path.is_file():
             raise FileNotFoundError(f"Contig file {contig_fasta} not found")
+        failures: list[str] = []
+        try:
+            return self._run_antismash_local(str(path), assembly_id)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError) as exc:
+            failures.append(f"local antiSMASH: {exc}")
+            logger.info("Local antiSMASH unavailable for %s: %s", assembly_id, exc)
+        try:
+            return self._run_antismash_api(str(path), assembly_id)
+        except Exception as exc:
+            failures.append(f"antiSMASH API: {exc}")
+            logger.warning("antiSMASH API unavailable for %s: %s", assembly_id, exc)
+        try:
+            return self._hmmer_detection(path, assembly_id)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError) as exc:
+            failures.append(f"HMMER: {exc}")
+        raise RuntimeError(
+            "No BGC detection tool succeeded. Install antiSMASH (`conda install -c bioconda antismash`) "
+            "or Prodigal/HMMER (`conda install -c bioconda prodigal hmmer`) and configure "
+            "HYPHAE_PFAM_HMM. Details: " + "; ".join(failures)
+        )
+
+    def _hmmer_detection(self, contig_path: Path, assembly_id: str) -> list[dict[str, Any]]:
+        """Predict proteins with Prodigal, call Pfam with HMMER, and form real hit regions."""
+        pfam_hmm = Path(os.environ.get("HYPHAE_PFAM_HMM", ""))
+        if not pfam_hmm.is_file():
+            raise FileNotFoundError("HYPHAE_PFAM_HMM must point to a pressed Pfam-A HMM file")
+        genes_faa = contig_path.with_name(f"{contig_path.stem}_genes.faa")
+        genes_gff = contig_path.with_name(f"{contig_path.stem}_genes.gff")
+        domtblout = contig_path.with_name(f"{contig_path.stem}_pfam.domtblout")
+        subprocess.run(
+            ["prodigal", "-i", str(contig_path), "-a", str(genes_faa), "-o", str(genes_gff), "-f", "gff", "-p", "meta"],
+            check=True, capture_output=True, text=True, timeout=300,
+        )
+        subprocess.run(
+            ["hmmscan", "--domtblout", str(domtblout), "--noali", str(pfam_hmm), str(genes_faa)],
+            check=True, capture_output=True, text=True, timeout=1800,
+        )
+        return self._parse_hmmer_output(domtblout, genes_gff, assembly_id)
+
+    @staticmethod
+    def _parse_hmmer_output(domtblout: Path, genes_gff: Path, assembly_id: str) -> list[dict[str, Any]]:
+        """Convert Pfam domain-table hits into coordinate-backed BGC candidates."""
+        domain_types = {
+            "PF00501": "NRPS", "PF00668": "NRPS", "PF00550": "NRPS",
+            "PF00109": "PKS", "PF02801": "PKS", "PF00023": "PKS",
+            "PF03936": "Terpene", "PF13243": "Terpene",
+        }
+        gene_locations: dict[str, tuple[str, int, int]] = {}
+        with genes_gff.open(errors="replace") as handle:
+            for line in handle:
+                if line.startswith("#"):
+                    continue
+                fields = line.rstrip().split("\t")
+                if len(fields) != 9 or fields[2] != "CDS":
+                    continue
+                attributes = dict(
+                    item.split("=", 1) for item in fields[8].split(";") if "=" in item
+                )
+                gene_id = attributes.get("ID")
+                if gene_id:
+                    gene_locations[gene_id] = (fields[0], int(fields[3]), int(fields[4]))
+        hits: dict[str, list[str]] = {}
+        with domtblout.open(errors="replace") as handle:
+            for line in handle:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                fields = line.split()
+                if len(fields) < 4:
+                    continue
+                pfam_id = fields[0].split(".")[0]
+                gene_id = fields[3]
+                if pfam_id in domain_types and gene_id in gene_locations:
+                    hits.setdefault(gene_id, []).append(pfam_id)
+        by_contig: dict[str, list[tuple[int, int, str, str]]] = {}
+        for gene_id, domains in hits.items():
+            contig, start, end = gene_locations[gene_id]
+            for domain in sorted(set(domains)):
+                by_contig.setdefault(contig, []).append((start, end, domain, domain_types[domain]))
+        bgcs: list[dict[str, Any]] = []
+        for index, (contig, entries) in enumerate(sorted(by_contig.items())):
+            entries.sort()
+            domains = sorted({entry[2] for entry in entries})
+            types = sorted({entry[3] for entry in entries})
+            bgc_type = "Hybrid" if "NRPS" in types and "PKS" in types else types[0]
+            bgcs.append({
+                "bgc_id": f"{assembly_id}_{contig}_bgc_{index}",
+                "assembly_id": assembly_id,
+                "type": bgc_type.lower(),
+                "product_types": types,
+                "domains": domains,
+                "contig_id": contig,
+                "start": min(entry[0] for entry in entries),
+                "end": max(entry[1] for entry in entries),
+                "confidence": min(0.95, 0.6 + 0.05 * len(domains)),
+                "tool": "hmmer",
+                "source": "hmmer_pfam",
+            })
+        return bgcs
+
+    def _run_antismash_local(self, contig_fasta: str, assembly_id: str) -> list[dict[str, Any]]:
+        """Run a locally installed antiSMASH binary and parse its JSON result."""
+        output_dir = Path(f"antismash_output_{assembly_id}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            "antismash",
+            "--minlength", "1000",
+            "--genefinder", "prodigal",
+            "--output-dir", str(output_dir),
+            "--output-format", "json",
+            contig_fasta,
+        ]
+        logger.info("Running local antiSMASH for %s", assembly_id)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=3600)
+        json_file = output_dir / "results.json"
+        if not json_file.is_file():
+            json_file = next(output_dir.glob("*.json"), None)
+        if json_file is None or not json_file.is_file():
+            raise RuntimeError(f"Local antiSMASH completed without a JSON result in {output_dir}")
+        return self._parse_antismash_result(json.loads(json_file.read_text()), assembly_id)
+
+    def _run_antismash_api(self, contig_fasta: str, assembly_id: str) -> list[dict[str, Any]]:
+        """Submit to the public API with automatic retry and queue polling."""
+        path = Path(contig_fasta)
         try:
             import requests
+        except ImportError as exc:
+            raise RuntimeError("requests is required for antiSMASH API fallback") from exc
+        fasta_content = path.read_text()
+        failures: list[str] = []
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = requests.post(
+                    f"{self.antismash_url}/submit",
+                    files={"sequence": (path.name, fasta_content, "text/plain")},
+                    data={"email": "hyphae@example.com", "ncbi": "off"},
+                    timeout=30,
+                )
+                if response.status_code != 200:
+                    raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+                job_id = response.json().get("submission_id")
+                if not job_id:
+                    raise RuntimeError("no submission_id returned")
+                result = self._poll_antismash(
+                    job_id, assembly_id, self.max_wait_seconds, self.poll_interval_seconds
+                )
+                if result is not None:
+                    return self._parse_antismash_result(result, assembly_id)
+                failures.append(f"attempt {attempt}: job {job_id} did not complete")
+            except Exception as exc:
+                failures.append(f"attempt {attempt}: {exc}")
+            if attempt < self.max_retries:
+                time.sleep(min(self.poll_interval_seconds, 30))
+        raise RuntimeError("antiSMASH API unavailable after retries: " + "; ".join(failures))
 
-            response = requests.post(
-                f"{self.antismash_url}/submit",
-                files={"sequence": (path.name, path.read_text(), "text/plain")},
-                data={"email": "hyphae@example.com", "ncbi": "off"},
-                timeout=30,
-            )
-            if response.status_code != 200:
-                raise RuntimeError(f"antiSMASH submit failed ({response.status_code}): {response.text[:500]}")
-            job_id = response.json().get("submission_id")
-            if not job_id:
-                raise RuntimeError("antiSMASH did not return a submission_id")
-            return self._poll_antismash(job_id, assembly_id)
-        except Exception as exc:
-            raise RuntimeError(f"antiSMASH API unavailable: {exc}") from exc
-
-    def _poll_antismash(self, job_id: str, assembly_id: str, max_wait_sec: int = 300) -> list[dict[str, Any]]:
+    def _poll_antismash(
+        self,
+        job_id: str,
+        assembly_id: str,
+        timeout_sec: int = 7200,
+        poll_interval: int = 30,
+    ) -> dict[str, Any] | None:
+        """Poll queued/running jobs until complete, timeout, or terminal failure."""
         try:
             import requests
         except ImportError as exc:
             raise RuntimeError("requests is required for antiSMASH API access") from exc
         started = time.monotonic()
-        while time.monotonic() - started < max_wait_sec:
+        poll_count = 0
+        last_status: str | None = None
+        while time.monotonic() - started < timeout_sec:
+            elapsed = int(time.monotonic() - started)
             try:
                 response = requests.get(f"{self.antismash_url}/results/{job_id}", timeout=10)
                 if response.status_code == 404:
-                    time.sleep(5)
+                    if last_status != "queued":
+                        logger.info("antiSMASH job %s (%s): queued", job_id, assembly_id)
+                        last_status = "queued"
+                    elif poll_count % 10 == 0:
+                        logger.info("antiSMASH job %s: still queued after %ss", job_id, elapsed)
+                    poll_count += 1
+                    time.sleep(poll_interval)
                     continue
                 if response.status_code != 200:
-                    time.sleep(5)
+                    logger.warning("antiSMASH job %s: HTTP %s; retrying", job_id, response.status_code)
+                    time.sleep(poll_interval)
                     continue
                 result = response.json()
-                if result.get("status") == "done":
-                    return self._parse_antismash_result(result, assembly_id)
-                if result.get("status") == "failed":
-                    raise RuntimeError(str(result.get("error", "antiSMASH job failed")))
+                status = str(result.get("status", "unknown"))
+                if status == "done":
+                    logger.info("antiSMASH job %s completed after %ss", job_id, elapsed)
+                    return result
+                if status == "failed":
+                    logger.error("antiSMASH job %s failed: %s", job_id, result.get("error", "unknown"))
+                    return None
+                if status != last_status:
+                    logger.info("antiSMASH job %s (%s): %s", job_id, assembly_id, status)
+                    last_status = status
+                elif poll_count % 10 == 0:
+                    logger.info("antiSMASH job %s: %s after %ss", job_id, status, elapsed)
+                poll_count += 1
+            except requests.exceptions.Timeout:
+                logger.warning("antiSMASH job %s: request timeout; retrying", job_id)
+            except requests.exceptions.ConnectionError as exc:
+                logger.warning("antiSMASH job %s: connection error; retrying: %s", job_id, exc)
             except Exception as exc:
-                logger.debug("antiSMASH poll error for %s: %s", job_id, exc)
-            time.sleep(5)
-        raise RuntimeError(f"antiSMASH job {job_id} timed out")
+                logger.warning("antiSMASH job %s: unexpected poll error; retrying: %s", job_id, exc)
+            time.sleep(poll_interval)
+        logger.error("antiSMASH job %s timed out after %ss", job_id, timeout_sec)
+        return None
 
     @staticmethod
     def _parse_antismash_result(result: dict[str, Any], assembly_id: str) -> list[dict[str, Any]]:

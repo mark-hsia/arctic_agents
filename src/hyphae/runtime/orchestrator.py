@@ -44,15 +44,16 @@ class FullOrchestrator:
             raise ValueError(
                 "Real pipeline requires use_real_tools=True; synthetic and heuristic execution paths are disabled."
             )
-        print("REAL PIPELINE: FASTQ → Assembly → antiSMASH → Structures → Docking")
+        print("REAL PIPELINE: FASTQ → Assembly → local evidence detection → Structures → Docking")
 
-        print("Stage 1: Assembly and real BGC discovery via antiSMASH...")
+        print("Stage 1: Assembly and local BGC keyword detection...")
         asm = AssemblyAgent()
         manifest = asm.assemble(manifest, output_dir / "assembly")
         tax = TaxonomyAgent()
         manifest = tax.analyze(manifest, target_pathogen)
         
-        bgc = BGCDiscoveryAgent()
+        print("Starting BGC discovery without external APIs...\n")
+        bgc = BGCDiscoveryAgent(max_wait_seconds=7200, poll_interval_seconds=30)
         manifest = bgc.discover(manifest)
 
         print(f"Found {len(manifest.final_state.get('bgcs', []))} real BGCs")
