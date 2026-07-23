@@ -21,38 +21,12 @@ class KnowledgeBase:
         self.chembl_subset = self._load_or_fetch_chembl()
 
     def _load_or_fetch_mibig(self) -> dict[str, dict[str, Any]]:
-        """Load MIBiG metadata, falling back to a small built-in subset."""
+        """Load only an existing local MIBiG cache; absence is unknown."""
         cache_file = self.cache_dir / "mibig_index.json"
         cached = self._load_json(cache_file)
         if cached is not None:
             return cached
-        try:
-            import requests
-
-            response = requests.get(
-                "https://mibig.secondarymetabolites.org/api/v1/compounds", timeout=30
-            )
-            if response.status_code == 200:
-                index = {
-                    compound["mibig_accession"]: {
-                        "product": compound.get("product_class", []),
-                        "organism": compound.get("organism", "unknown"),
-                        "domains": compound.get("domains", []),
-                        "references": compound.get("publications", []),
-                    }
-                    for compound in response.json().get("compounds", [])
-                    if compound.get("mibig_accession")
-                }
-                self._write_json(cache_file, index)
-                return index
-        except Exception:
-            pass
-        fallback = {
-            "BGC0000001": {"product": ["nrps"], "organism": "Aspergillus fumigatus", "domains": [], "references": []},
-            "BGC0000002": {"product": ["t1pks"], "organism": "Streptomyces coelicolor", "domains": [], "references": []},
-        }
-        self._write_json(cache_file, fallback)
-        return fallback
+        return {}
 
     def _load_or_fetch_chembl(self) -> dict[str, dict[str, Any]]:
         """Load a local antifungal ChEMBL subset; an empty index is valid."""
@@ -60,28 +34,6 @@ class KnowledgeBase:
         cached = self._load_json(cache_file)
         if cached is not None:
             return cached
-        try:
-            import requests
-
-            response = requests.get(
-                "https://www.ebi.ac.uk/chembl/api/data/activity?target_organism=Candida%20albicans&limit=1000",
-                timeout=30,
-            )
-            if response.status_code == 200:
-                index = {
-                    activity["canonical_smiles"]: {
-                        "activity": activity.get("standard_value"),
-                        "target": activity.get("assay_description"),
-                        "source": "chembl",
-                    }
-                    for activity in response.json().get("activities", [])
-                    if activity.get("canonical_smiles")
-                }
-                self._write_json(cache_file, index)
-                return index
-        except Exception:
-            pass
-        self._write_json(cache_file, {})
         return {}
 
     @staticmethod

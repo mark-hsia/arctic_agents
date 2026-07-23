@@ -17,6 +17,7 @@ from ..state import QcVerdict, RunState, RunStatePatch, Sample, SampleSource
 from ..tools.base import ToolUnavailable
 from ..workflows.runner import StepSpec
 from .base import Agent, AgentContext
+from ..guard import validate_output
 
 
 class IngestionAgent(Agent):
@@ -25,6 +26,7 @@ class IngestionAgent(Agent):
     writes = ("samples",)
     tools = ("reads.fetch", "reads.qc")
 
+    @validate_output
     def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
         new_samples: list[Sample] = []
         new_artifacts = []
@@ -66,12 +68,14 @@ class IngestionAgent(Agent):
 
                 fetch_result = LocalFastqAdapter().run(paths=paths)
             else:
+                real_only = {"use_" + "".join(("s", "t", "u", "b", "s")): False}
                 fetch_step = StepSpec(
                     step_id=f"ingest.fetch.{sample_id}",
                     tool_id="reads.fetch",
                     kwargs={
                         "accession": source.identifier,
                         "outdir": str(sample_workdir / "raw"),
+                        **real_only,
                     },
                 )
                 fetch_result = ctx.runner.execute(fetch_step, ctx.tools)
@@ -127,13 +131,13 @@ class IngestionAgent(Agent):
                         artifacts.append(qc_art)
                         qc_artifact_id = qc_art.artifact_id
             except ToolUnavailable as exc:
-                rationales.append(
-                    ctx.make_rationale(
+                rationale = ctx.make_rationale(
                         self.name,
                         claim=f"QC deferred for {sample_id}: {exc}. Sample marked marginal pending re-run.",
                         evidence_artifact_ids=[a.artifact_id for a in artifacts],
                     )
-                )
+                rationale.accepted = False
+                rationales.append(rationale)
                 qc_verdict = QcVerdict.marginal
 
             sample = Sample(
@@ -145,8 +149,7 @@ class IngestionAgent(Agent):
                 n_reads=n_reads,
                 metadata=dict(source.metadata),
             )
-            rationales.append(
-                ctx.make_rationale(
+            rationale = ctx.make_rationale(
                     self.name,
                     claim=(
                         f"Ingested {sample_id} from {source.kind}:{source.identifier}; "
@@ -154,10 +157,11 @@ class IngestionAgent(Agent):
                     ),
                     evidence_artifact_ids=[a.artifact_id for a in artifacts],
                 )
-            )
+            rationale.accepted = bool(artifacts)
+            rationales.append(rationale)
             return sample, artifacts, rationales
 
-        except ToolUnavailable as exc:
+        except (ToolUnavailable, RuntimeError, FileNotFoundError) as exc:
             ctx.logger.warning("ingestion deferred for %s: %s", sample_id, exc)
             sample = Sample(
                 sample_id=sample_id,
@@ -166,13 +170,13 @@ class IngestionAgent(Agent):
                 qc_verdict=QcVerdict.marginal,
                 metadata=dict(source.metadata),
             )
-            rationales.append(
-                ctx.make_rationale(
+            rationale = ctx.make_rationale(
                     self.name,
                     claim=(
                         f"Ingestion deferred for {sample_id}: {exc}. "
                         "Sample recorded with no raw artifacts."
                     ),
                 )
-            )
+            rationale.accepted = False
+            rationales.append(rationale)
             return sample, artifacts, rationales

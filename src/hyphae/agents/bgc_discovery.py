@@ -21,6 +21,7 @@ from ..tools.antismash import parse_antismash_json
 from ..tools.base import ToolUnavailable
 from ..workflows.runner import StepSpec
 from .base import Agent, AgentContext
+from ..guard import validate_output
 
 if TYPE_CHECKING:
     from ..manifest import Manifest
@@ -80,11 +81,11 @@ class BGCDiscoveryAgent(Agent):
         assemblies = manifest.final_state.get("assemblies", {})
         bgcs: list[dict[str, Any]] = []
         for assembly_id, assembly_path in assemblies.items() if isinstance(assemblies, dict) else []:
-            logger.info("Detecting biosynthetic domains in %s", assembly_id)
+            logger.info("Detecting secondary-metabolite domains in %s", assembly_id)
             bgcs.extend(self._run_antismash(str(assembly_path), str(assembly_id)))
         if not bgcs:
             raise RuntimeError(
-                "No biosynthetic domains were detected. Verify contigs or install antiSMASH, or install "
+                "No secondary-metabolite domains were detected. Verify contigs or install antiSMASH, or install "
                 "Prodigal + HMMER and set HYPHAE_PFAM_HMM to a pressed Pfam-A HMM database."
             )
         manifest.final_state["bgcs"] = bgcs
@@ -225,7 +226,7 @@ class BGCDiscoveryAgent(Agent):
         try:
             import requests
         except ImportError as exc:
-            raise RuntimeError("requests is required for antiSMASH API fallback") from exc
+            raise RuntimeError("requests is required for antiSMASH API access") from exc
         fasta_content = path.read_text()
         failures: list[str] = []
         for attempt in range(1, self.max_retries + 1):
@@ -367,6 +368,7 @@ class BGCDiscoveryAgent(Agent):
                 evidence_artifact_ids=artifact_ids,
             ))
 
+    @validate_output
     def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
         new_bgcs: list[BGC] = []
         new_artifacts = []
@@ -379,25 +381,25 @@ class BGCDiscoveryAgent(Agent):
 
             fasta_artifact = artifacts_by_id.get(mag.fasta_artifact_id)
             if fasta_artifact is None:
-                new_rationales.append(
-                    ctx.make_rationale(
+                rationale = ctx.make_rationale(
                         self.name,
                         f"antiSMASH deferred for MAG {mag.mag_id}: "
                         f"FASTA artifact {mag.fasta_artifact_id!r} is not in run state.",
                     )
-                )
+                rationale.accepted = False
+                new_rationales.append(rationale)
                 continue
 
             fasta_path = ctx.artifact_store.resolve(fasta_artifact)
             if not fasta_path.is_file():
-                new_rationales.append(
-                    ctx.make_rationale(
+                rationale = ctx.make_rationale(
                         self.name,
                         f"antiSMASH deferred for MAG {mag.mag_id}: "
                         f"FASTA artifact {mag.fasta_artifact_id!r} is missing from the artifact store.",
                         evidence_artifact_ids=[fasta_artifact.artifact_id],
                     )
-                )
+                rationale.accepted = False
+                new_rationales.append(rationale)
                 continue
 
             mag_workdir = ctx.workdir / "bgc" / mag.mag_id
@@ -415,12 +417,13 @@ class BGCDiscoveryAgent(Agent):
             try:
                 result = ctx.runner.execute(step, ctx.tools)
             except (ToolUnavailable, RuntimeError, KeyError) as exc:
-                new_rationales.append(
-                    ctx.make_rationale(
+                rationale = ctx.make_rationale(
                         self.name,
                         f"antiSMASH failed for MAG {mag.mag_id}: {exc}.",
+                        evidence_artifact_ids=[fasta_artifact.artifact_id],
                     )
-                )
+                rationale.accepted = False
+                new_rationales.append(rationale)
                 continue
 
             json_path = next(
@@ -428,13 +431,27 @@ class BGCDiscoveryAgent(Agent):
                 None,
             )
             cluster_dicts: list[dict] = []
+            evidence_ids: list[str] = []
             if json_path is not None and Path(json_path).is_file():
                 try:
                     cluster_dicts = parse_antismash_json(Path(json_path))
+                    report_artifact = ctx.artifact_store.put_path(
+                        Path(json_path), producer_agent=self.name, run_id=ctx.run_id,
+                        tool_version=result.tool_version, mime_type="application/json",
+                        parent_ids=[fasta_artifact.artifact_id],
+                    )
+                    new_artifacts.append(report_artifact)
+                    evidence_ids = [report_artifact.artifact_id]
                 except (ValueError, json.JSONDecodeError):
                     cluster_dicts = []
-            elif result.metrics.get("clusters"):
-                cluster_dicts = list(result.metrics["clusters"])
+            if not evidence_ids:
+                rationale = ctx.make_rationale(
+                    self.name, f"antiSMASH result for MAG {mag.mag_id} deferred: no parseable JSON evidence artifact was produced.",
+                    [fasta_artifact.artifact_id],
+                )
+                rationale.accepted = False
+                new_rationales.append(rationale)
+                continue
 
             for cd in cluster_dicts:
                 bgc_id = f"BGC_{short_hash(mag.mag_id, cd['contig'], str(cd['start']))}"
@@ -462,6 +479,7 @@ class BGCDiscoveryAgent(Agent):
                         f"antiSMASH on MAG {mag.mag_id}: "
                         f"{len(cluster_dicts)} BGCs detected."
                     ),
+                    evidence_artifact_ids=evidence_ids,
                 )
             )
 

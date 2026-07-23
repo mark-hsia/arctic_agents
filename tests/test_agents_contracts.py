@@ -14,9 +14,9 @@ def test_ingestion_only_writes_samples() -> None:
     assert "samples" in a.writes
 
 
-def test_assembly_writes_assemblies_mags_taxonomy() -> None:
+def test_assembly_writes_assemblies_and_mags() -> None:
     a = AssemblyAgent()
-    assert {"assemblies", "mags", "taxonomy"} <= set(a.writes)
+    assert {"assemblies", "mags"} <= set(a.writes)
 
 
 def test_bgc_discovery_only_writes_bgcs() -> None:

@@ -5,12 +5,46 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..knowledge import KnowledgeBase
+from ..state import Citation, RunState, RunStatePatch
+from .base import Agent, AgentContext
+from ..guard import validate_output
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
 
 
-class LiteratureAgent:
+class LiteratureAgent(Agent):
     """Cite only supplied knowledge-cache records; never performs web retrieval."""
+
+    name = "literature"
+    reads = ("bgcs", "structures", "docking", "artifacts")
+    writes = ("literature",)
+    tools = ()
+
+    @validate_output
+    def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
+        literature: dict[str, list[Citation]] = {}
+        rationales = []
+        artifact_ids = {artifact.artifact_id for artifact in state.artifacts}
+        kb = KnowledgeBase()
+        for bgc in state.bgcs:
+            record = kb.lookup_bgc(bgc.bgc_id)
+            evidence = [bgc.gbk_artifact_id] if bgc.gbk_artifact_id in artifact_ids else []
+            if record:
+                citation = Citation(
+                    bgc_or_compound_id=bgc.bgc_id,
+                    title=str(record.get("title") or record.get("product") or "MIBiG record"),
+                    doi=record.get("doi"), url=record.get("url"), year=record.get("year"),
+                )
+                literature[bgc.bgc_id] = [citation]
+                rationales.append(ctx.make_rationale(self.name, f"BGC {bgc.bgc_id} has an exact local MIBiG cache match.", evidence))
+            else:
+                rationale = ctx.make_rationale(self.name, f"BGC {bgc.bgc_id} has no exact local MIBiG cache match; novelty remains unknown.", evidence)
+                rationale.accepted = False
+                rationales.append(rationale)
+        ctx.record(rationales=rationales)
+        patch = RunStatePatch(literature=literature or None, rationales=rationales or None)
+        self.validate_patch(patch)
+        return patch
 
     def cite(
         self,

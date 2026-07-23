@@ -5,14 +5,54 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..ids import new_rationale_id, short_hash
-from ..state import Rationale
+from ..state import BGC, InferredStructure, Rationale, RunState, RunStatePatch
+from .base import Agent, AgentContext
+from ..guard import validate_output
 
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
 
 
-class StructureInferenceAgent:
+class StructureInferenceAgent(Agent):
     """Register only externally supplied, provenance-bearing structure calls."""
+
+    name = "structure"
+    reads = ("bgcs", "novelty", "artifacts")
+    writes = ("structures",)
+    tools = ()
+
+    @validate_output
+    def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
+        """Promote only BGC structures backed by a registered GBK/provider artifact.
+
+        Pfam domain class alone cannot determine an exact molecular structure;
+        producing a template SMILES would be fabricated evidence.
+        """
+        structures: dict[str, list[InferredStructure]] = {}
+        rationales: list[Rationale] = []
+        known_artifacts = {artifact.artifact_id for artifact in state.artifacts}
+        for bgc in state.bgcs:
+            evidence_id = bgc.gbk_artifact_id
+            if evidence_id is None or evidence_id not in known_artifacts:
+                rationale = ctx.make_rationale(
+                    self.name,
+                    f"Structure inference for {bgc.bgc_id} deferred: domain architecture does not identify an exact SMILES without a provenance-bearing predictor artifact.",
+                    [evidence_id] if evidence_id else [],
+                )
+                rationale.accepted = False
+                rationales.append(rationale)
+                continue
+            rationale = ctx.make_rationale(
+                self.name,
+                f"Structure inference for {bgc.bgc_id} deferred: no externally supplied structure-prediction result was registered.",
+                [evidence_id],
+            )
+            rationale.accepted = False
+            rationales.append(rationale)
+        ctx.record(rationales=rationales)
+        patch = RunStatePatch(structures=structures or None, rationales=rationales or None)
+        self.validate_patch(patch)
+        return patch
 
     def infer(self, manifest: Manifest, use_antismash: bool = False) -> Manifest:
         """Create structures only from real BGC-associated SMILES annotations.

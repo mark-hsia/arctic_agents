@@ -35,7 +35,7 @@ class CapturingRunner(WorkflowRunner):
         )
 
 
-def test_bgc_discovery_resolves_mag_fasta_from_artifact_store(tmp_path: Path) -> None:
+def test_bgc_discovery_defers_without_a_parseable_result_artifact(tmp_path: Path) -> None:
     run, initial = make_run(tmp_path, Intent(), tool_registry=ToolRegistry())
     fasta_source = tmp_path / "assembly.fasta"
     fasta_source.write_text(">contig_0\nACGT\n")
@@ -66,5 +66,6 @@ def test_bgc_discovery_resolves_mag_fasta_from_artifact_store(tmp_path: Path) ->
     patch = BGCDiscoveryAgent().step(state, run.context())
 
     assert runner.steps[0].kwargs["fasta"] == str(run.artifact_store.resolve(fasta_artifact))
-    assert patch.bgcs is not None
-    assert len(patch.bgcs) == 1
+    assert patch.bgcs is None
+    assert patch.rationales is not None
+    assert any(not rationale.accepted for rationale in patch.rationales)

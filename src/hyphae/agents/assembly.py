@@ -32,12 +32,13 @@ from ..tools.assemblers import fasta_assembly_stats
 from ..tools.base import ToolUnavailable
 from ..workflows.runner import StepSpec
 from .base import Agent, AgentContext
+from ..guard import validate_output
 
 
 class AssemblyAgent(Agent):
     name = "assembly"
     reads = ("intent", "samples")
-    writes = ("assemblies", "mags", "taxonomy")
+    writes = ("assemblies", "mags")
     tools = (
         "assembly.metaspades",
         "assembly.megahit",
@@ -115,10 +116,10 @@ class AssemblyAgent(Agent):
             "or MEGAHIT (`conda install -c bioconda megahit`). Details: " + "; ".join(failures)
         )
 
+    @validate_output
     def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
         new_assemblies: dict[str, AssemblyResult] = {}
         new_mags: list[MAG] = []
-        new_taxonomy: dict[str, TaxonomyCall] = {}
         new_artifacts = []
         new_rationales = []
 
@@ -137,7 +138,7 @@ class AssemblyAgent(Agent):
 
             try:
                 result = ctx.runner.execute(asm_step, ctx.tools)
-            except ToolUnavailable as exc:
+            except (ToolUnavailable, RuntimeError, FileNotFoundError) as exc:
                 new_rationales.append(
                     ctx.make_rationale(
                         self.name,
@@ -166,8 +167,14 @@ class AssemblyAgent(Agent):
                 new_artifacts.append(contigs_artifact)
                 contigs_artifact_id = contigs_artifact.artifact_id
             else:
-                # No real file (replay manifests may omit paths but provide metrics).
-                contigs_artifact_id = f"art_assembly_{sample.sample_id}"
+                rationale = ctx.make_rationale(
+                    self.name,
+                    f"Assembly deferred for {sample.sample_id}: assembler returned no real contig FASTA artifact.",
+                    [artifact_id for artifact_id in sample.raw_artifact_ids if artifact_id in {a.artifact_id for a in state.artifacts}],
+                )
+                rationale.accepted = False
+                new_rationales.append(rationale)
+                continue
 
             assembly = AssemblyResult(
                 sample_id=sample.sample_id,
@@ -187,19 +194,15 @@ class AssemblyAgent(Agent):
                         f"n50={stats.get('n50')}, total={stats.get('total_length')}, "
                         f"n_contigs={stats.get('n_contigs')}."
                     ),
-                    evidence_artifact_ids=[contigs_artifact_id]
-                    if contigs_artifact_id.startswith("art_") and not contigs_artifact_id.startswith("art_assembly_")
-                    else [],
+                    evidence_artifact_ids=[contigs_artifact_id],
                 )
             )
 
-            mag, mag_arts, mag_rats, taxonomy = self._bin_and_qc(
+            mag, mag_arts, mag_rats, _taxonomy = self._bin_and_qc(
                 sample, assembly, contigs_path, ctx
             )
             if mag is not None:
                 new_mags.append(mag)
-                if taxonomy is not None:
-                    new_taxonomy[mag.mag_id] = taxonomy
             new_artifacts.extend(mag_arts)
             new_rationales.extend(mag_rats)
 
@@ -207,7 +210,6 @@ class AssemblyAgent(Agent):
         patch = RunStatePatch(
             assemblies=new_assemblies or None,
             mags=new_mags or None,
-            taxonomy=new_taxonomy or None,
             artifacts=new_artifacts or None,
             rationales=new_rationales or None,
         )

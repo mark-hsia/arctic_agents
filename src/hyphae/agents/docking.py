@@ -9,14 +9,51 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..ids import new_rationale_id
-from ..state import Rationale
+from ..state import DockingResult, Rationale, RunState, RunStatePatch
+from ..tools.base import ToolUnavailable
+from .base import Agent, AgentContext
+from ..guard import validate_output
 
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
 
 
-class TargetDockingAgent:
-    """Rank inferred structures against all declared targets without docking software."""
+class TargetDockingAgent(Agent):
+    """Dock registered structures only when prepared real inputs are available."""
+
+    name = "docking"
+    reads = ("structures", "intent")
+    writes = ("docking",)
+    tools = ("docking.vina",)
+
+    @validate_output
+    def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
+        docking: dict[str, list[DockingResult]] = {}
+        rationales: list[Rationale] = []
+        targets = state.intent.target_proteins
+        try:
+            vina = ctx.tools.get("docking.vina")
+        except ToolUnavailable as exc:
+            for structures in state.structures.values():
+                for structure in structures:
+                    rationale = ctx.make_rationale(self.name, f"Docking deferred for {structure.structure_id}: AutoDock Vina is unavailable ({exc}).")
+                    rationale.accepted = False
+                    rationales.append(rationale)
+            ctx.record(rationales=rationales)
+            return RunStatePatch(rationales=rationales or None)
+        for structures in state.structures.values():
+            for structure in structures:
+                for target in targets:
+                    rationale = ctx.make_rationale(
+                        self.name,
+                        f"Docking deferred for {structure.structure_id} against {target.name}: prepared ligand and receptor PDBQT artifacts are required by Vina.",
+                    )
+                    rationale.accepted = False
+                    rationales.append(rationale)
+        ctx.record(rationales=rationales)
+        patch = RunStatePatch(docking=docking or None, rationales=rationales or None)
+        self.validate_patch(patch)
+        return patch
 
     def dock(
         self,

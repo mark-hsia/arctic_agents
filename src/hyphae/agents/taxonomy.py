@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING, Any
 
 from ..ids import new_rationale_id
 from ..state import RunState, RunStatePatch, TaxonomyCall
+from ..tools.base import ToolUnavailable
 from .species_predictor import GenomeComparator
 from .base import Agent, AgentContext
+from ..guard import validate_output
 
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
@@ -41,9 +43,9 @@ def shannon(counts: list[int]) -> float:
 
 class TaxonomyAgent(Agent):
     name = "taxonomy"
-    reads = ("mags", "taxonomy")
+    reads = ("mags", "artifacts")
     writes = ("taxonomy",)
-    tools = ()
+    tools = ("magqc.busco", "domain.eukrep")
 
     def analyze(self, manifest: Manifest, target_pathogen: str) -> Manifest:
         """Assign coarse taxonomy from assembly quality and target-name evidence.
@@ -133,45 +135,50 @@ class TaxonomyAgent(Agent):
 
         return Rationale(rationale_id=rationale_id, producer_agent="taxonomy", claim=claim)
 
+    @validate_output
     def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
         new_taxonomy: dict[str, TaxonomyCall] = {}
         new_rationales = []
-
-        per_sample: dict[str, list[TaxonomyCall]] = defaultdict(list)
+        new_artifacts = []
+        artifacts = {artifact.artifact_id: artifact for artifact in state.artifacts}
         for mag in state.mags:
-            call = state.taxonomy.get(mag.mag_id)
-            if call is None and mag.is_fungal:
-                call = TaxonomyCall(
-                    mag_id=mag.mag_id,
-                    domain="Eukaryota",
-                    phylum="Ascomycota" if (mag.busco_complete or 0) > 50 else None,
-                    method="EukRep+BUSCO_ascomycota",
-                    confidence=(mag.busco_complete / 100) if mag.busco_complete else None,
-                )
-                new_taxonomy[mag.mag_id] = call
-            if call is not None:
-                per_sample[mag.sample_id].append(call)
-
-        for sample_id, calls in per_sample.items():
-            fungal = [c for c in calls if c.domain == "Eukaryota"]
-            if not fungal:
+            fasta_artifact = artifacts.get(mag.fasta_artifact_id)
+            if fasta_artifact is None:
+                rationale = ctx.make_rationale(self.name, f"Fungal classification for {mag.mag_id} deferred: MAG FASTA artifact is unavailable.")
+                rationale.accepted = False
+                new_rationales.append(rationale)
                 continue
-            genera = [c.genus or c.family or c.phylum or "unknown" for c in fungal]
-            counts = list(Counter(genera).values())
-            h = shannon(counts)
-            distinct = len(set(genera) - {"unknown"})
-            claim = (
-                f"Sample {sample_id}: {len(fungal)} fungal MAGs across "
-                f"{len(set(genera))} taxonomic groups; Shannon={h:.3f}."
-            )
-            if distinct >= 2:
-                claim += " Co-occurrence flag: hypothesis-of-interest (competition-driven novelty)."
-            new_rationales.append(ctx.make_rationale(self.name, claim))
+            fasta = ctx.artifact_store.resolve(fasta_artifact)
+            if not fasta.is_file():
+                rationale = ctx.make_rationale(self.name, f"Fungal classification for {mag.mag_id} deferred: MAG FASTA file is missing.", [fasta_artifact.artifact_id])
+                rationale.accepted = False
+                new_rationales.append(rationale)
+                continue
+            try:
+                result = ctx.tools.get("magqc.busco").run(
+                    fasta=str(fasta), outdir=str(ctx.workdir / "taxonomy" / mag.mag_id), lineage="ascomycota_odb10"
+                )
+                outputs = [Path(path) for path in result.output_paths if Path(path).is_file()]
+                if not outputs or result.metrics.get("complete_pct") is None:
+                    raise RuntimeError("BUSCO produced no parseable completeness artifact")
+                output = outputs[0]
+                evidence = ctx.artifact_store.put_path(output, producer_agent=self.name, run_id=ctx.run_id, tool_version=result.tool_version, parent_ids=[fasta_artifact.artifact_id])
+                new_artifacts.append(evidence)
+                confidence = float(result.metrics["complete_pct"]) / 100.0
+                domain = "Eukaryota" if confidence >= 0.70 else "Unknown"
+                new_taxonomy[mag.mag_id] = TaxonomyCall(mag_id=mag.mag_id, domain=domain, phylum="Ascomycota" if domain == "Eukaryota" else None, confidence=confidence, method="BUSCO_ascomycota")
+                new_rationales.append(ctx.make_rationale(self.name, f"MAG {mag.mag_id} classified as {domain} from {confidence:.2%} BUSCO completeness.", [evidence.artifact_id]))
+            except (ToolUnavailable, FileNotFoundError, RuntimeError, KeyError) as exc:
+                new_taxonomy[mag.mag_id] = TaxonomyCall(mag_id=mag.mag_id, domain="Unknown", confidence=None, method=None)
+                rationale = ctx.make_rationale(self.name, f"BUSCO classification deferred for {mag.mag_id} (tool unavailable or failed): {exc}", [fasta_artifact.artifact_id])
+                rationale.accepted = False
+                new_rationales.append(rationale)
 
-        ctx.record(rationales=new_rationales)
+        ctx.record(artifacts=new_artifacts, rationales=new_rationales)
         patch = RunStatePatch(
             taxonomy=new_taxonomy or None,
             rationales=new_rationales or None,
+            artifacts=new_artifacts or None,
         )
         self.validate_patch(patch)
         return patch

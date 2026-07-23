@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .planner import PlanStep
+from ..state import RunState, RunStatePatch
+from .base import Agent, AgentContext
+from ..guard import validate_output
 
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
@@ -18,10 +21,34 @@ class PlanReview:
     comments: list[str]
 
 
-class CriticAgent:
+class CriticAgent(Agent):
     """Reject plans that are unsafe, incomplete, or not dependency ordered."""
 
     REQUIRED_ORDER = ("ingestion", "assembly", "taxonomy", "bgc_discovery")
+    name = "critic"
+    reads = ("rationales", "artifacts", "structures", "docking", "literature", "novelty")
+    writes = ()
+    tools = ()
+
+    @validate_output
+    def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
+        """Append auditable critiques; append-only state cannot mutate prior claims."""
+        known = {artifact.artifact_id for artifact in state.artifacts}
+        critiques = []
+        for rationale in state.rationales:
+            missing = [artifact_id for artifact_id in rationale.evidence_artifact_ids if artifact_id not in known]
+            if missing:
+                critique = ctx.make_rationale(self.name, f"Rejected rationale {rationale.rationale_id}: missing evidence artifacts {', '.join(missing)}.")
+                critique.accepted = False
+                critiques.append(critique)
+            elif not rationale.evidence_artifact_ids and rationale.accepted:
+                critique = ctx.make_rationale(self.name, f"Rejected rationale {rationale.rationale_id}: accepted claim has no artifact provenance.")
+                critique.accepted = False
+                critiques.append(critique)
+        ctx.record(rationales=critiques)
+        patch = RunStatePatch(rationales=critiques or None)
+        self.validate_patch(patch)
+        return patch
 
     def review(self, manifest: Manifest) -> Manifest:
         """Validate manifest claims and retain an auditable rejection reason."""

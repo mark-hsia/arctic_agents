@@ -8,12 +8,46 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..state import RunState, RunStatePatch
+from .base import Agent, AgentContext
+from ..guard import validate_output
+
 if TYPE_CHECKING:
     from ..runtime.deterministic_executor import Manifest
 
 
-class ReporterAgent:
+class ReporterAgent(Agent):
     """Render ranked candidates, BGC dossiers, and a portable run card."""
+
+    name = "reporter"
+    reads = ("structures", "docking", "literature", "novelty", "rationales", "artifacts")
+    writes = ()
+    tools = ()
+
+    @validate_output
+    def step(self, state: RunState, ctx: AgentContext) -> RunStatePatch:
+        """Write an audit report from typed state without adding scientific claims."""
+        report_dir = ctx.workdir / "report"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        accepted = [r for r in state.rationales if r.accepted]
+        deferred = [r for r in state.rationales if not r.accepted]
+        (report_dir / "summary.md").write_text(
+            "# Hyphae audit summary\n\n"
+            "This report records computational provenance only. Docking ranks, if present, "
+            "are not experimental validation and are not a substitute for wet-lab testing.\n\n"
+            f"- Samples: {len(state.samples)}\n- Assemblies: {len(state.assemblies)}\n"
+            f"- BGCs: {len(state.bgcs)}\n- Accepted rationales: {len(accepted)}\n"
+            f"- Deferred rationales: {len(deferred)}\n"
+        )
+        (report_dir / "run_card.json").write_text(json.dumps({
+            "run_id": state.run_id,
+            "intent": state.intent.model_dump(mode="json"),
+            "agents_run": getattr(ctx.run, "executed_steps", []),
+            "final_state_summary": {"samples": len(state.samples), "assemblies": len(state.assemblies), "bgcs": len(state.bgcs)},
+        }, indent=2) + "\n")
+        patch = RunStatePatch()
+        self.validate_patch(patch)
+        return patch
 
     def generate_report(self, manifest: Manifest, output_dir: Path) -> None:
         output_dir = Path(output_dir)

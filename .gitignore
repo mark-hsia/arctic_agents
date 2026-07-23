@@ -14,3 +14,25 @@ dist/
 out/
 runs/
 artifacts/
+
+# Never commit synthetic/test outputs
+*stub*
+*fake*
+*synthetic*
+*placeholder*
+test_outputs/
+!src/hyphae/tools/fastq_stub_generator.py
+!tests/test_sra_stub_workflow.py
+
+# Large FASTQ/Assembly files (never commit)
+.hyphae_cache/fastq/
+.hyphae_cache/assemblies/
+spades_output/
+megahit_small/
+megahit_output/
+
+# Only metadata caches are committed
+!.hyphae_cache/sra_metadata.json
+!.hyphae_cache/pfam.json
+!.hyphae_cache/mibig.json
+!.hyphae_cache/npatlas.json

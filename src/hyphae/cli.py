@@ -24,6 +24,7 @@ from .provenance import ProvenanceIndex
 from .runner import make_run, run_pipeline
 from .state import Intent, RunState
 from .tools import default_registry
+from .tools.cache_manager import CacheManager
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 console = Console()
@@ -134,6 +135,13 @@ def tools_ls() -> None:
     for tid, ok in reg.availability_report().items():
         table.add_row(tid, "[green]yes[/green]" if ok else "[red]no[/red]")
     console.print(table)
+
+
+@app.command("cache-clean")
+def cache_clean(cache_dir: Path = typer.Option(Path(".hyphae_cache"), help="Metadata cache directory.")) -> None:
+    """Remove invalid SRA metadata cache records; valid entries remain immutable."""
+    removed = CacheManager(cache_dir).clean()
+    console.print(f"Removed {removed} invalid SRA metadata cache entries.")
 
 
 if __name__ == "__main__":  # pragma: no cover
