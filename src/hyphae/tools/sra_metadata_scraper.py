@@ -37,6 +37,25 @@ class SRAMetadataScraper:
         self.cache.save_metadata(accession, metadata)
         return metadata
 
+    def search_organism(self, organism: str, limit: int = 3) -> list[dict[str, Any]]:
+        """Return real RunInfo records for an organism query without downloading reads."""
+        term = f'"{organism}"[Organism]'
+        query = urlencode({"db": "sra", "term": term, "retmax": max(1, limit), "retmode": "json"})
+        try:
+            with urlopen(f"{self.esearch_url}?{query}", timeout=self.timeout) as response:
+                import json
+                ids = json.loads(response.read().decode("utf-8")).get("esearchresult", {}).get("idlist", [])
+        except OSError as exc:
+            raise RuntimeError(f"NCBI organism search failed for {organism}: {exc}") from exc
+        records: list[dict[str, Any]] = []
+        for sra_id in ids:
+            row = self._run_info(str(sra_id))
+            run = (row.get("Run") or "").strip()
+            if not run:
+                continue
+            records.append(self.fetch(run))
+        return records
+
     def _search(self, accession: str) -> str:
         query = urlencode({"db": "sra", "term": accession, "retmax": 1, "retmode": "json"})
         with urlopen(f"{self.esearch_url}?{query}", timeout=self.timeout) as response:
