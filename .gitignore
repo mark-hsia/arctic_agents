@@ -1,37 +1,38 @@
-.venv/
+# Python
 __pycache__/
-*.egg-info/
 *.pyc
+*.pyo
+*.egg-info/
 .pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.coverage
-htmlcov/
-build/
-dist/
-*.duckdb
-*.duckdb.wal
-out/
-runs/
-artifacts/
+.venv/
+venv/
 
-# Never commit synthetic/test outputs
-*stub*
-*fake*
-*synthetic*
-*placeholder*
-test_outputs/
-!src/hyphae/tools/fastq_stub_generator.py
-!tests/test_sra_stub_workflow.py
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Large FASTQ/Assembly files (never commit)
+# macOS
+.DS_Store
+Thumbs.db
+
+# Hyphae artifacts (dev only)
+/tmp/
+*.tmp
+demo_run/
+report/
+report_final/
+report_real_sra/
+report_real_antismash/
+
+# Large data (downloads, not checked in)
 .hyphae_cache/fastq/
 .hyphae_cache/assemblies/
-spades_output/
-megahit_small/
 megahit_output/
+spades_output/
 
-# Only metadata caches are committed
+# Keep reference caches (immutable)
 !.hyphae_cache/sra_metadata.json
 !.hyphae_cache/pfam.json
 !.hyphae_cache/mibig.json

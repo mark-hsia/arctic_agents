@@ -1,8 +1,0 @@
-
-=== Error correction and assembling warnings:
- * 0:00:00.001     1M / 12M   WARN    General                 (memory_limit.cpp          :  53)   Failed to limit memory to 250 Gb, setrlimit(2) call failed, errno = 22 (Invalid argument). Watch your memory consumption!
- * 0:00:20.303   291M / 597M  WARN    General                 (pair_info_count.cpp       : 185)   Unable to estimate insert size for paired library #0
- * 0:00:20.305   291M / 597M  WARN    General                 (pair_info_count.cpp       : 191)   None of paired reads aligned properly. Please, check orientation of your read pairs.
- * 0:00:20.306   291M / 597M  WARN    General                 (repeat_resolving.cpp      :  82)   Insert size was not estimated for any of the paired libraries, repeat resolution module will not run.
- * 0:00:27.676   215M / 620M  WARN    General                 (pair_info_count.cpp       :  93)   Single reads are not used in metagenomic mode
-======= Warnings saved to /Users/markhsia/arctic_agents/report_final/assembly/SRR8813623_metaspades/warnings.log
